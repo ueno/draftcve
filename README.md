@@ -29,7 +29,7 @@ $ edit ~/.config/cve-report/config.toml
 The config file defines the model provider for each task. A provider
 can be the name of a [declarative provider][declarative-providers] or a
 custom provider defined in the `providers/` directory; `init` writes a
-sample for [RamaLama][ramalama]. See `.cve-report/` for a sample
+sample for [RamaLama][ramalama]. See `config/cve-report/` for a sample
 configuration. Without a config file, the provider is `none`: nothing
 is sent anywhere until you choose a model.
 
