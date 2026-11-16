@@ -22,10 +22,15 @@
 
 {%- set metrics = [] -%}
 {%- if severity -%}
+  {#- `content` is free-form in the schema; `description` carries the rationale. -#}
+  {%- set content = {"value": severity.rating} -%}
+  {%- if severity.rationale -%}
+    {%- set content = dict(content, description=severity.rationale) -%}
+  {%- endif -%}
   {%- set metrics = metrics + [{
     "other": {
       "type": project ~ " severity rating",
-      "content": {"value": severity.rating}
+      "content": content
     }
   }] -%}
 {%- endif -%}

@@ -103,6 +103,33 @@ mod tests {
     }
 
     #[test]
+    fn the_severity_rationale_is_the_metric_description() {
+        let metric = |severity: Value| {
+            let context = json!({
+                "cve_id": "CVE-2025-0001",
+                "project": "demo",
+                "generator": "cve-report",
+                "repo_url": null,
+                "commits": [],
+                "issues": [],
+                "advisories": [],
+                "vars": {},
+                "severity": severity,
+            });
+            let record = render(DEFAULT_TEMPLATE, "default.json.j2", &context).unwrap();
+            record["containers"]["cna"]["metrics"][0]["other"]["content"].clone()
+        };
+        assert_eq!(
+            metric(json!({"rating": "Low", "rationale": "Needs local access."})),
+            json!({"value": "Low", "description": "Needs local access."})
+        );
+        assert_eq!(
+            metric(json!({"rating": "Low", "rationale": null})),
+            json!({"value": "Low"})
+        );
+    }
+
+    #[test]
     fn maps_keep_their_order() {
         let value = render(r#"{{ {"b": 1, "a": 2} }}"#, "t", &json!({})).unwrap();
         assert_eq!(
