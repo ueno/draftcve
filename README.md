@@ -192,5 +192,6 @@ into the binary, include `LICENSE-FIRST` with binary distributions.
 [cvss-calc]: https://www.first.org/cvss/calculator/3.1
 [minijinja]: https://github.com/mitsuhiko/minijinja
 [declarative-providers]: https://github.com/aaif-goose/goose/tree/main/crates/goose-providers#declarative-providers
+[package-rebase-planner]: https://github.com/ueno/package-rebase-planner
 [ramalama]: https://ramalama.ai
 [gdk]: https://goose-docs.ai/docs/gdk/
