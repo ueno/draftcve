@@ -86,9 +86,6 @@ instead, which skips that step: `--introduced`, `--cvss`, `--severity`,
 `--cwe`, `--title`, and `--description`. A `CVSS:3.1/...` vector found in
 a commit message is used as is.
 
-See [`examples/gnutls.sh`](examples/gnutls.sh) for a complete
-invocation reproducing the upstream part of CVE-2026-42010.
-
 ### Writing templates
 
 Templates are rendered with [minijinja][minijinja] with JSON
