@@ -560,6 +560,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         .collect::<Result<Vec<_>>>()?;
     let releases = Releases::new(&root, &args.tag_formats)?;
     let mut workspace = Workspace::new(&root, releases, fixes.clone())?;
+    workspace.project = project.clone();
     workspace.version_type = args.version_type.clone();
     workspace.severity_levels = args
         .severity_levels
@@ -809,17 +810,14 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
             report.as_deref(),
             hints,
         );
-        let outcome = runner.run(
+        runner.run(
             Task::Describe,
             crate::agent::DESCRIBE,
             "writing the description",
-            &[],
+            &["write_description"],
             &opening,
         )?;
-        description = outcome
-            .result
-            .map(|text| crate::prompts::clean_prose(&text))
-            .filter(|text| !text.is_empty());
+        description = workspace.lock().unwrap().description.clone();
         if description.is_none() {
             reporter.warn("the model did not write a description");
         }

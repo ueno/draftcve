@@ -89,7 +89,7 @@ pub const DESCRIBE: Role = Role {
     warn_at: 3,
     exhausted: "could not write the description",
     warning: "You have {remaining} retries left before this run is stopped. \
-              Write the description now, as plain prose.",
+              Call `write_description` with your best description now. Then call `finish`.",
 };
 
 pub const TITLE: Role = Role {
