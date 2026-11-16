@@ -76,9 +76,9 @@ struct GenerateArgs {
     /// Record template in Jinja format (default: built-in)
     #[arg(short, long)]
     template: Option<PathBuf>,
-    /// Regex matching release tags; capture groups are joined with `.` to form the version
-    #[arg(long, default_value = crate::release::DEFAULT_TAG_FORMAT)]
-    tag_format: String,
+    /// Regex matching release tags; capture groups are joined with `.` to form the version; may be repeated, the first match wins
+    #[arg(long = "tag-format", value_name = "REGEX", default_value = crate::release::DEFAULT_TAG_FORMAT)]
+    tag_formats: Vec<String>,
     /// Version type of affected ranges, e.g. semver, git, custom
     #[arg(long, default_value = "semver")]
     version_type: String,
@@ -548,7 +548,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         .iter()
         .map(|commit| crate::git::resolve(&root, commit))
         .collect::<Result<Vec<_>>>()?;
-    let releases = Releases::new(&root, &args.tag_format)?;
+    let releases = Releases::new(&root, &args.tag_formats)?;
     let mut workspace = Workspace::new(&root, releases, fixes.clone())?;
     workspace.version_type = args.version_type.clone();
     workspace.severity_levels = args

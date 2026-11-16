@@ -532,7 +532,7 @@ mod tests {
     fn a_misbehaving_model_is_steered_to_an_answer() {
         let dir = tempdir::TempDir::new("cve-report-agent").unwrap();
         let (introduced, fix) = repository(dir.path());
-        let releases = Releases::new(dir.path(), crate::release::DEFAULT_TAG_FORMAT).unwrap();
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let mut workspace = Workspace::new(dir.path(), releases, vec![fix.clone()]).unwrap();
         workspace.fixed_in.fixed = workspace.releases.first_containing(&fix).unwrap();
         let workspace = Arc::new(Mutex::new(workspace));
@@ -583,7 +583,7 @@ mod tests {
     fn prose_is_the_result_of_a_prose_role() {
         let dir = tempdir::TempDir::new("cve-report-prose").unwrap();
         let (_, fix) = repository(dir.path());
-        let releases = Releases::new(dir.path(), crate::release::DEFAULT_TAG_FORMAT).unwrap();
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
         let backend = Arc::new(ScriptedBackend {
             replies: Mutex::new(VecDeque::from([
@@ -602,7 +602,7 @@ mod tests {
     fn running_out_of_turns_yields_no_result() {
         let dir = tempdir::TempDir::new("cve-report-exhausted").unwrap();
         let (_, fix) = repository(dir.path());
-        let releases = Releases::new(dir.path(), crate::release::DEFAULT_TAG_FORMAT).unwrap();
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix.clone()]).unwrap();
         let replies: VecDeque<_> = (0..TITLE.max_turns)
             .map(|_| call("read_commit", serde_json::json!({"commit": fix})))

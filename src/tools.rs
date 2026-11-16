@@ -913,7 +913,7 @@ mod tests {
 
     fn workspace_with_catalog() -> (tempdir::TempDir, Workspace) {
         let dir = tempdir::TempDir::new("cve-report-cwe").unwrap();
-        let releases = Releases::new(dir.path(), crate::release::DEFAULT_TAG_FORMAT).unwrap();
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let mut workspace = Workspace::new(dir.path(), releases, vec!["0".into()]).unwrap();
         workspace.cwe_catalog = Some(Arc::new(crate::cwe::tests::catalog()));
         (dir, workspace)
@@ -1009,7 +1009,7 @@ mod tests {
         std::fs::write(repo.join("src/lib.c"), "int f(void) {\n  return 1;\n}\n").unwrap();
         git(&repo, &["commit", "-q", "-a", "-m", "fix"]);
         let fix = git(&repo, &["rev-parse", "HEAD"]);
-        let releases = Releases::new(&repo, crate::release::DEFAULT_TAG_FORMAT).unwrap();
+        let releases = Releases::new(&repo, &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(&repo, releases, vec![fix]).unwrap();
         (dir, workspace)
     }

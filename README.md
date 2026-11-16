@@ -54,7 +54,7 @@ are recorded as the model gives them, with a warning.
 $ cve-report generate CVE-2026-42010 cb1833afd9 \
     -C path/to/gnutls \
     --policy path/to/gnutls/SECURITY.md \
-    --tag-format '^(\d+\.\d+\.\d+)$' \
+    --tag-format '^(\d+)\.(\d+)\.(\d+)$' \
     --repo-url https://gitlab.com/gnutls/gnutls
 ```
 
@@ -69,7 +69,10 @@ The main arguments are:
   [`templates/default.json.j2`](templates/default.json.j2))
 - `--tag-format`: a regular expression matching release tags. Capture
   groups are joined with `.` to form the version, so
-  `^gnutls_(\d+)_(\d+)_(\d+)$` maps `gnutls_3_6_12` to `3.6.12`
+  `^gnutls_(\d+)_(\d+)_(\d+)$` maps `gnutls_3_6_12` to `3.6.12`. May
+  be repeated for a project that changed its tagging style, e.g.
+  `--tag-format '^(\d+)\.(\d+)\.(\d+)$' --tag-format '^gnutls_(\d+)_(\d+)_(\d+)$'`;
+  a tag takes its version from the first format that matches
 - `--finder NAME`: a name to credit as a finder, in addition to
   those in `Reported-by:` trailers; may be repeated
 - `--var KEY=VALUE`: extra template variables, such as
