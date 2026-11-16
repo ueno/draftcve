@@ -119,6 +119,9 @@ struct GenerateArgs {
     /// Description (skips the model)
     #[arg(long)]
     description: Option<String>,
+    /// The finder's original report, e.g. an email or issue text, given to the model as context
+    #[arg(long, value_name = "FILE")]
+    report: Option<PathBuf>,
     /// Name to credit as a finder, in addition to `Reported-by:` trailers; may be repeated
     #[arg(long = "finder", value_name = "NAME")]
     finders: Vec<String>,
@@ -522,6 +525,13 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         ),
         None => None,
     };
+    let report = match &args.report {
+        Some(path) => Some(
+            fs::read_to_string(path)
+                .with_context(|| format!("could not read {}", path.display()))?,
+        ),
+        None => None,
+    };
 
     let root = args
         .repo
@@ -690,8 +700,10 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
     if let Some(blame) = blame {
         let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
         let (project, fixes_text) = (&project, &fixes_text);
+        let report = report.as_deref();
         jobs.push(Box::new(move || {
-            let opening = crate::prompts::affected_opening(project, fixes_text, &blame, hints);
+            let opening =
+                crate::prompts::affected_opening(project, fixes_text, &blame, report, hints);
             runner.run(
                 Task::Affected,
                 crate::agent::AFFECTED,
@@ -723,6 +735,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
     if !score_tools.is_empty() {
         let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
         let (project, fixes_text, reporters) = (&project, &fixes_text, &reporters);
+        let report = report.as_deref();
         jobs.push(Box::new(move || {
             let opening = {
                 let workspace = workspace.lock().unwrap();
@@ -731,6 +744,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
                     fixes_text,
                     &facts(&workspace, reporters, true),
                     &score_tools,
+                    report,
                     hints,
                 )
             };
@@ -757,7 +771,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
     if needs_severity {
         let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
         let (project, fixes_text, reporters) = (&project, &fixes_text, &reporters);
-        let policy = policy.as_deref();
+        let (policy, report) = (policy.as_deref(), report.as_deref());
         jobs.push(Box::new(move || {
             let opening = {
                 let workspace = workspace.lock().unwrap();
@@ -767,6 +781,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
                     &facts(&workspace, reporters, false),
                     policy,
                     &workspace.severity_levels,
+                    report,
                     hints,
                 )
             };
@@ -787,7 +802,13 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
 
     let known = facts(&workspace.lock().unwrap(), &reporters, true);
     if description.is_none() {
-        let opening = crate::prompts::describe_opening(&project, &fixes_text, &known, hints);
+        let opening = crate::prompts::describe_opening(
+            &project,
+            &fixes_text,
+            &known,
+            report.as_deref(),
+            hints,
+        );
         let outcome = runner.run(
             Task::Describe,
             crate::agent::DESCRIBE,

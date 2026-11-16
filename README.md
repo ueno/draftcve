@@ -73,6 +73,10 @@ The main arguments are:
   be repeated for a project that changed its tagging style, e.g.
   `--tag-format '^(\d+)\.(\d+)\.(\d+)$' --tag-format '^gnutls_(\d+)_(\d+)_(\d+)$'`;
   a tag takes its version from the first format that matches
+- `--report FILE`: the finder's original report, such as the email or
+  issue that disclosed the vulnerability. The model reads it alongside
+  the fix in every step, but is told to trust the fix where the two
+  disagree. It is not added to the record
 - `--finder NAME`: a name to credit as a finder, in addition to
   those in `Reported-by:` trailers; may be repeated
 - `--var KEY=VALUE`: extra template variables, such as

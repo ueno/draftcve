@@ -80,6 +80,19 @@ The title is a short phrase under 80 characters, in the form "<impact> via <caus
 
 Do not include the project name. Reply with the title only, on a single line."#;
 
+/// The finder's report, which says how the flaw was found and what it does,
+/// but not always accurately: the fix is the ground truth.
+fn push_report(text: &mut String, report: Option<&str>) {
+    if let Some(report) = report {
+        text.push_str(&format!(
+            "\n# Report\n\n\
+             The original report from the finder. It may overstate or misjudge \
+             the impact; where it disagrees with the fix, trust the fix.\n\n{}\n",
+            report.trim()
+        ));
+    }
+}
+
 fn push_hints(text: &mut String, hints: Option<&str>) {
     if let Some(hints) = hints {
         text.push_str(&format!("\n\nHints:\n{hints}"));
@@ -87,14 +100,23 @@ fn push_hints(text: &mut String, hints: Option<&str>) {
 }
 
 /// The opening message for finding the introducing commit.
-pub fn affected_opening(project: &str, fixes: &str, blame: &str, hints: Option<&str>) -> String {
+pub fn affected_opening(
+    project: &str,
+    fixes: &str,
+    blame: &str,
+    report: Option<&str>,
+    hints: Option<&str>,
+) -> String {
     let mut text = format!(
         "Project: {project}\n\n\
-         Find the commit that introduced the vulnerability fixed by the following commit(s).\n\n\
-         # Fix\n\n{fixes}\n\n\
+         Find the commit that introduced the vulnerability fixed by the following commit(s).\n"
+    );
+    push_report(&mut text, report);
+    text.push_str(&format!(
+        "\n# Fix\n\n{fixes}\n\n\
          # Blame\n\nCommits that last changed the lines touched by the fix, \
          as of just before the fix:\n\n{blame}"
-    );
+    ));
     push_hints(&mut text, hints);
     text
 }
@@ -105,6 +127,7 @@ pub fn score_opening(
     fixes: &str,
     facts: &str,
     tools: &[&str],
+    report: Option<&str>,
     hints: Option<&str>,
 ) -> String {
     let mut text = format!(
@@ -120,6 +143,7 @@ pub fn score_opening(
     if !facts.is_empty() {
         text.push_str(&format!("\n# Known facts\n\n{facts}\n"));
     }
+    push_report(&mut text, report);
     text.push_str(&format!("\n# Fix\n\n{fixes}"));
     push_hints(&mut text, hints);
     text
@@ -132,6 +156,7 @@ pub fn rate_opening(
     facts: &str,
     policy: Option<&str>,
     severity_levels: &[String],
+    report: Option<&str>,
     hints: Option<&str>,
 ) -> String {
     let mut text = format!(
@@ -151,18 +176,27 @@ pub fn rate_opening(
              rate by the impact and ease of exploitation.\n",
         ),
     }
+    push_report(&mut text, report);
     text.push_str(&format!("\n# Fix\n\n{fixes}"));
     push_hints(&mut text, hints);
     text
 }
 
 /// The opening message for the description.
-pub fn describe_opening(project: &str, fixes: &str, facts: &str, hints: Option<&str>) -> String {
+pub fn describe_opening(
+    project: &str,
+    fixes: &str,
+    facts: &str,
+    report: Option<&str>,
+    hints: Option<&str>,
+) -> String {
     let mut text = format!(
         "Project: {project}\n\n\
          Write the CVE description of the vulnerability fixed by the following commit(s).\n\n\
-         # Known facts\n\n{facts}\n\n# Fix\n\n{fixes}"
+         # Known facts\n\n{facts}\n"
     );
+    push_report(&mut text, report);
+    text.push_str(&format!("\n# Fix\n\n{fixes}"));
     push_hints(&mut text, hints);
     text
 }
@@ -238,6 +272,16 @@ mod tests {
     #[test]
     fn an_unopened_reasoning_block_is_dropped() {
         assert_eq!(clean_prose("thinking...</think>A flaw."), "A flaw.");
+    }
+
+    #[test]
+    fn the_report_comes_before_the_fix() {
+        let text = describe_opening("gnutls", "FIX", "FACTS", Some("REPORT\n"), None);
+        let report = text.find("# Report").unwrap();
+        assert!(text.find("FACTS").unwrap() < report);
+        assert!(report < text.find("REPORT").unwrap());
+        assert!(text.find("REPORT").unwrap() < text.find("# Fix").unwrap());
+        assert!(!describe_opening("gnutls", "FIX", "FACTS", None, None).contains("# Report"));
     }
 
     #[test]
