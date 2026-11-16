@@ -170,7 +170,7 @@ warning names the command-line option to supply it by hand.
 
 ## License
 
-MIT
+MIT AND BSD-3-Clause
 
 The CVSS v3.1 help text, in the doc comments of the metrics in
 `src/cvss.rs`, is copyright FIRST.ORG, Inc., under the BSD 3-clause
