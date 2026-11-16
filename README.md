@@ -104,9 +104,9 @@ template.
 ## How it works
 
 cve-report is built using the [goose Development Kit (GDK)][gdk], in
-the same architecture as package-rebase-planner. A record is
-produced in up to five agent runs. Each run has a narrow goal, because a
-small model loses track of a long checklist:
+the same architecture as [package-rebase-planner][package-rebase-planner].
+A record is produced in up to five agent runs. Each run has a narrow
+goal, because a small model loses track of a long checklist:
 
 1. **affected**: find the commit that introduced the flaw. The opening
    message already contains the fix and a blame of the lines it touched.
