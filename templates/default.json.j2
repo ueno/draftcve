@@ -1,0 +1,127 @@
+{#-
+  Default cve-report template: a CVE JSON 5 record.
+
+  Output is JSON-escaped: `{{ value }}` emits a JSON string, number, object,
+  array, or null, so never put quotes around it. Run with `--dump-context`
+  to see every variable available.
+
+  Variables passed with `--var KEY=VALUE` appear under `vars`:
+    assigner_org_id      UUID of the CNA (default: a placeholder)
+    assigner_short_name  short name of the CNA (default: the project)
+    vendor               vendor name; when set, affected entries use
+                         vendor/product instead of packageName/collectionURL
+    commit_url           commit URL prefix (default: <repo_url>/commit/)
+    issue_url            issue URL prefix (default: <repo_url>/issues/)
+    advisory_url         URL prefix for `advisories`, i.e. `Fixes:` trailer
+                         values that are neither issues nor CVEs (default:
+                         advisories are not referenced)
+-#}
+{%- set org_id = vars.assigner_org_id | default("00000000-0000-4000-9000-000000000000") -%}
+{%- set commit_url = vars.commit_url | default(repo_url ~ "/commit/") -%}
+{%- set issue_url = vars.issue_url | default(repo_url ~ "/issues/") -%}
+
+{%- set metrics = [] -%}
+{%- if severity -%}
+  {%- set metrics = metrics + [{
+    "other": {
+      "type": project ~ " severity rating",
+      "content": {"value": severity.rating}
+    }
+  }] -%}
+{%- endif -%}
+{%- if cvss -%}
+  {%- set metrics = metrics + [{"cvssV3_1": cvss, "format": "CVSS"}] -%}
+{%- endif -%}
+
+{#- `set` inside a loop is local to it; a namespace carries results out. -#}
+{%- set ns = namespace(references=[]) -%}
+{%- if repo_url -%}
+  {%- for commit in commits -%}
+    {%- set ns.references = ns.references + [{"url": commit_url ~ commit.id, "name": commit.subject, "tags": ["patch"]}] -%}
+  {%- endfor -%}
+  {%- for issue in issues -%}
+    {%- set ns.references = ns.references + [{"url": issue_url ~ issue, "tags": ["issue-tracking"]}] -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if vars.advisory_url -%}
+  {%- for advisory in advisories -%}
+    {%- set ns.references = ns.references + [{"url": vars.advisory_url ~ advisory, "name": advisory, "tags": ["vendor-advisory"]}] -%}
+  {%- endfor -%}
+{%- endif -%}
+{
+    "dataType": "CVE_RECORD",
+    "dataVersion": "5.2",
+    "cveMetadata": {
+        "cveId": {{ cve_id }},
+        "assignerOrgId": {{ org_id }},
+        "assignerShortName": {{ vars.assigner_short_name | default(project) }},
+        "state": "PUBLISHED"
+    },
+    "containers": {
+        "cna": {
+            {%- if title %}
+            "title": {{ project ~ ": " ~ title }},
+            {%- endif %}
+            {%- if metrics %}
+            "metrics": {{ metrics }},
+            {%- endif %}
+            "descriptions": [
+                {
+                    "lang": "en",
+                    "value": {{ description | default("[PLACEHOLDER] Describe the vulnerability.", true) }}
+                }
+            ],
+            "affected": [
+                {
+                    {%- if vars.vendor %}
+                    "vendor": {{ vars.vendor }},
+                    "product": {{ project }},
+                    {%- elif repo_url %}
+                    "packageName": {{ project }},
+                    "collectionURL": {{ repo_url }},
+                    {%- else %}
+                    "vendor": {{ project }},
+                    "product": {{ project }},
+                    {%- endif %}
+                    {%- if affected and affected.versions %}
+                    "versions": {{ affected.versions }},
+                    "defaultStatus": "unaffected"
+                    {%- else %}
+                    "defaultStatus": "unknown"
+                    {%- endif %}
+                }
+            ],
+            {%- if cwe %}
+            "problemTypes": [
+                {
+                    "descriptions": [
+                        {
+                            "cweId": {{ cwe.id }},
+                            "description": {{ cwe.id ~ ": " ~ cwe.name }},
+                            "lang": "en",
+                            "type": "CWE"
+                        }
+                    ]
+                }
+            ],
+            {%- endif %}
+            {%- if date_public %}
+            "datePublic": {{ date_public }},
+            {%- endif %}
+            {%- if reporters %}
+            "credits": [
+                {%- for reporter in reporters %}
+                {"lang": "en", "type": "finder", "value": {{ reporter }}}{% if not loop.last %},{% endif %}
+                {%- endfor %}
+            ],
+            {%- endif %}
+            "references": {{ ns.references or [{"url": "https://www.cve.org/CVERecord?id=" ~ cve_id}] }},
+            "providerMetadata": {
+                "orgId": {{ org_id }}
+            },
+            "x_generator": {
+                "engine": {{ generator }}
+            }
+        }
+    }
+}
