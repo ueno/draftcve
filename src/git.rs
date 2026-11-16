@@ -151,10 +151,13 @@ pub fn search_history(
         "--no-merges",
         &max_count,
         &pickaxe,
-        "--end-of-options",
-        commit,
     ];
     let path = path.map(|path| path.display().to_string());
+    if path.is_some() {
+        // Keep searching past a rename, under the file's earlier names.
+        args.push("--follow");
+    }
+    args.extend(["--end-of-options", commit]);
     if let Some(path) = path.as_deref() {
         args.extend(["--", path]);
     }
