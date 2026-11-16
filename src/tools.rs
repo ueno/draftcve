@@ -113,11 +113,6 @@ pub struct Workspace {
     pub version_type: String,
     /// Allowed severity ratings, as spelled in the policy.
     pub severity_levels: Vec<String>,
-    /// `write_*` tools offered in the current run.
-    pub offered: BTreeSet<&'static str>,
-    /// `write_*` tools the model has yet to call in the current run.
-    pub pending: BTreeSet<&'static str>,
-
     pub affected: Option<Affected>,
     pub cvss: Option<Cvss>,
     pub severity: Option<Severity>,
@@ -299,8 +294,6 @@ impl Workspace {
             fixed_in: FixedIn::default(),
             version_type: "semver".into(),
             severity_levels: vec![],
-            offered: BTreeSet::new(),
-            pending: BTreeSet::new(),
             affected: None,
             cvss: None,
             severity: None,
@@ -572,9 +565,9 @@ impl ToolProvider<Session> for Tools {
             .iter()
             .filter(|tool| match tool.name.as_ref() {
                 "search_cwe" | "read_cwe" => {
-                    workspace.cwe_catalog.is_some() && workspace.offered.contains("write_cwe")
+                    workspace.cwe_catalog.is_some() && session.writes.contains("write_cwe")
                 }
-                name if name.starts_with("write_") => workspace.offered.contains(name),
+                name if name.starts_with("write_") => session.writes.contains(name),
                 _ => true,
             })
             .cloned()
@@ -772,7 +765,7 @@ pub fn no_tool_provider() -> Arc<dyn ToolProvider<Session>> {
 
 /// Mark a write tool as answered for this run.
 fn satisfied(session: &Session, name: &str) {
-    session.workspace.lock().unwrap().pending.remove(name);
+    session.record.lock().unwrap().pending.remove(name);
 }
 
 fn text_result(text: String) -> Result<CallToolResult> {
@@ -861,7 +854,7 @@ fn dispatch(session: &Session, call: &CallToolRequestParams) -> Result<CallToolR
         }
         "finish" => {
             let params = parse_args::<FinishParams>(&call.arguments)?;
-            let pending = session.workspace.lock().unwrap().pending.clone();
+            let pending = session.record.lock().unwrap().pending.clone();
             if !pending.is_empty() {
                 let pending: Vec<_> = pending.into_iter().collect();
                 bail!(

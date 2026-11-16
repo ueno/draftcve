@@ -137,6 +137,13 @@ small model loses track of a long checklist:
 4. **describe**: write the description, as prose.
 5. **title**: write the title, as prose.
 
+Each run builds on the findings of the runs before it. With
+`--parallel N`, up to N of the affected, score, and rate runs go at
+once, and each one sees only the findings recorded before it started.
+The description and the title still come last, after everything else.
+This helps only when the model server takes concurrent requests (e.g.
+`llama-server --parallel N`), or when the tasks use different models.
+
 Facts that git already records are taken from the commits directly:
 credits from `Reported-by:`, issue numbers and advisory identifiers from
 `Fixes:`/`Closes:`/`Resolves:`, and the public date from the release tag.

@@ -11,6 +11,8 @@ use std::io::{IsTerminal, Write};
 pub struct Reporter {
     enabled: bool,
     colour: bool,
+    /// Prepended to every line, to tell apart runs that print at once.
+    prefix: String,
 }
 
 impl Reporter {
@@ -18,7 +20,15 @@ impl Reporter {
         Self {
             enabled: true,
             colour: std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+            prefix: String::new(),
         }
+    }
+
+    /// Prefix every line with `label`.
+    pub fn labelled(label: &str) -> Self {
+        let mut reporter = Self::new();
+        reporter.prefix = format!("{} ", reporter.paint("2", &format!("{label:>8} │")));
+        reporter
     }
 
     /// Prints nothing.
@@ -26,6 +36,7 @@ impl Reporter {
         Self {
             enabled: false,
             colour: false,
+            prefix: String::new(),
         }
     }
 
@@ -38,7 +49,19 @@ impl Reporter {
     }
 
     fn line(&self, text: &str) {
-        let mut stderr = std::io::stderr();
+        let mut text = text.to_string();
+        if !self.prefix.is_empty() {
+            text = text
+                .split('\n')
+                .map(|line| match line {
+                    "" => String::new(),
+                    line => format!("{}{line}", self.prefix),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+        // One write per call, so lines from concurrent runs do not mix.
+        let mut stderr = std::io::stderr().lock();
         let _ = writeln!(stderr, "{text}");
         let _ = stderr.flush();
     }

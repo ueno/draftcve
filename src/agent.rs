@@ -21,6 +21,7 @@ use goose_agent::operation::{
 use goose_agent::tool::{ToolOperation, ToolProvider};
 use goose_providers::conversation::Conversation;
 use goose_providers::conversation::message::Message;
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -29,6 +30,8 @@ use tokio_util::sync::CancellationToken;
 /// track of a long checklist.
 #[derive(Clone, Copy)]
 pub struct Role {
+    /// Short name, for progress output.
+    pub name: &'static str,
     /// Tools offered to the model.
     pub tools: fn() -> Arc<dyn ToolProvider<Session>>,
     /// Instructions.
@@ -44,6 +47,7 @@ pub struct Role {
 }
 
 pub const AFFECTED: Role = Role {
+    name: "affected",
     tools: tools::affected_tool_provider,
     system: crate::prompts::AFFECTED,
     max_turns: 32,
@@ -55,6 +59,7 @@ pub const AFFECTED: Role = Role {
 };
 
 pub const SCORE: Role = Role {
+    name: "score",
     tools: tools::score_tool_provider,
     system: crate::prompts::SCORE,
     max_turns: 16,
@@ -66,6 +71,7 @@ pub const SCORE: Role = Role {
 };
 
 pub const RATE: Role = Role {
+    name: "rate",
     tools: tools::rate_tool_provider,
     system: crate::prompts::RATE,
     max_turns: 8,
@@ -76,6 +82,7 @@ pub const RATE: Role = Role {
 };
 
 pub const DESCRIBE: Role = Role {
+    name: "describe",
     tools: tools::describe_tool_provider,
     system: crate::prompts::DESCRIBE,
     max_turns: 8,
@@ -86,6 +93,7 @@ pub const DESCRIBE: Role = Role {
 };
 
 pub const TITLE: Role = Role {
+    name: "title",
     tools: tools::no_tool_provider,
     system: crate::prompts::TITLE,
     max_turns: 2,
@@ -116,6 +124,8 @@ pub struct Record {
     warned_at: Option<usize>,
     /// Reminders sent about outstanding `write_*` calls.
     nudges: usize,
+    /// `write_*` tools the model has yet to call.
+    pub pending: BTreeSet<&'static str>,
 }
 
 /// Everything a step may touch. `StateMachine` hands `&Session` to each
@@ -126,6 +136,8 @@ pub struct Session {
     pub workspace: Arc<Mutex<Workspace>>,
     pub record: Arc<Mutex<Record>>,
     pub reporter: Arc<Reporter>,
+    /// `write_*` tools offered in this run.
+    pub writes: Arc<BTreeSet<&'static str>>,
     role: Role,
 }
 
@@ -146,6 +158,7 @@ struct Runtime {
     workspace: Arc<Mutex<Workspace>>,
     record: Arc<Mutex<Record>>,
     reporter: Arc<Reporter>,
+    writes: Arc<BTreeSet<&'static str>>,
     role: Role,
 }
 
@@ -158,6 +171,7 @@ impl SessionLoader<Session> for Runtime {
             workspace: self.workspace.clone(),
             record: self.record.clone(),
             reporter: self.reporter.clone(),
+            writes: self.writes.clone(),
             role: self.role,
         })
     }
@@ -269,14 +283,7 @@ impl Operation<Session, ConversationEffect> for EndTurnOperation {
 
         // The model stopped with findings outstanding. Small models often
         // describe the call they meant to make instead of making it.
-        let pending: Vec<_> = session
-            .workspace
-            .lock()
-            .unwrap()
-            .pending
-            .iter()
-            .copied()
-            .collect();
+        let pending: Vec<_> = record.pending.iter().copied().collect();
         if !pending.is_empty() && record.nudges < MAX_NUDGES {
             record.nudges += 1;
             drop(record);
@@ -355,6 +362,8 @@ pub struct Agent {
     backend: Arc<dyn Backend>,
     role: Role,
     pub reporter: Arc<Reporter>,
+    /// `write_*` tools to offer; each must be called before `finish`.
+    pub writes: BTreeSet<&'static str>,
 }
 
 impl Agent {
@@ -363,6 +372,7 @@ impl Agent {
             backend,
             role,
             reporter: Arc::new(Reporter::silent()),
+            writes: BTreeSet::new(),
         }
     }
 
@@ -376,7 +386,10 @@ impl Agent {
         workspace: Arc<Mutex<Workspace>>,
         opening: &str,
     ) -> Result<Outcome> {
-        let record = Arc::new(Mutex::new(Record::default()));
+        let record = Arc::new(Mutex::new(Record {
+            pending: self.writes.clone(),
+            ..Default::default()
+        }));
 
         let runtime = Runtime {
             conversation: Mutex::new(Conversation::new_unvalidated([
@@ -385,6 +398,7 @@ impl Agent {
             workspace: workspace.clone(),
             record: record.clone(),
             reporter: self.reporter.clone(),
+            writes: Arc::new(self.writes.clone()),
             role: self.role,
         };
 
@@ -521,8 +535,6 @@ mod tests {
         let releases = Releases::new(dir.path(), crate::release::DEFAULT_TAG_FORMAT).unwrap();
         let mut workspace = Workspace::new(dir.path(), releases, vec![fix.clone()]).unwrap();
         workspace.fixed_in.fixed = workspace.releases.first_containing(&fix).unwrap();
-        workspace.offered = ["write_affected_versions"].into();
-        workspace.pending = workspace.offered.clone();
         let workspace = Arc::new(Mutex::new(workspace));
 
         let backend = Arc::new(ScriptedBackend {
@@ -547,7 +559,8 @@ mod tests {
             ])),
             seen: Mutex::new(String::new()),
         });
-        let agent = Agent::new(backend.clone(), AFFECTED);
+        let mut agent = Agent::new(backend.clone(), AFFECTED);
+        agent.writes = ["write_affected_versions"].into();
         let outcome = agent.run("test", workspace.clone(), "find it").unwrap();
 
         assert_eq!(outcome.result.as_deref(), Some("introduced in v1.1"));
@@ -564,7 +577,6 @@ mod tests {
         let affected = workspace.affected.as_ref().unwrap();
         assert_eq!(affected.introduced.as_deref(), Some("1.1"));
         assert_eq!(affected.fixed.as_deref(), Some("1.3"));
-        assert!(workspace.pending.is_empty());
     }
 
     #[test]
