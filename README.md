@@ -8,9 +8,9 @@ written, so cve-report is designed to run against a **local** model,
 which is typically small and unreliable at producing structured output.
 The model is therefore never asked to write JSON. It is only asked to:
 
-- write prose (the title), or
+- write prose (the description and the title), or
 - call tools with a few constrained arguments (`write_affected_versions`,
-  `write_cvss_score`, `write_severity`, `write_cwe`, `write_description`)
+  `write_cvss_score`, `write_severity`, `write_cwe`)
 
 Each tool validates its input against the repository and tells the
 model what was wrong, so the model can correct itself. The app then
@@ -138,12 +138,11 @@ goal, because a small model loses track of a long checklist:
 3. **rate**: record the severity rating under the policy given with
    `--policy`. The CVSS score is not shown in this run, so that a
    project's own scale is not pulled towards CVSS.
-4. **describe**: record the description, in MITRE's template:
+4. **describe**: write the description, as prose in MITRE's template:
    "[PROBLEMTYPE] in [COMPONENT] in [PRODUCT] [VERSION] on [PLATFORMS]
    allows [ATTACKER] to [IMPACT] via [VECTOR]." or "[COMPONENT] in
    [PRODUCT] [VERSION] [ROOT CAUSE], which allows [ATTACKER] to [IMPACT]
-   via [VECTOR]." The model gives the parts; the product and the
-   affected versions are filled in from the findings.
+   via [VECTOR]."
 5. **title**: write the title, as prose.
 
 Each run builds on the findings of the runs before it. With
@@ -181,7 +180,7 @@ warning names the command-line option to supply it by hand.
 - `find_release`: find the first release containing a commit
 - `search_cwe`, `read_cwe`: look up the CWE catalog
 - `write_affected_versions`, `write_cvss_score`, `write_severity`,
-  `write_cwe`, `write_description`: record a finding
+  `write_cwe`: record a finding
 - `finish`: finish the task, with a summary in prose
 
 ## License

@@ -60,22 +60,21 @@ RULES:
 /// Instructions for writing the description.
 pub const DESCRIBE: &str = r#"You are a security engineer. You write the description of a vulnerability for a public CVE record.
 
-Call `write_description` with the parts of MITRE's template. The description is composed from them, in one of two forms:
-- with `problem_type`: "[PROBLEM TYPE] in [COMPONENT] in [PRODUCT] [VERSION] allows [ATTACKER] to [IMPACT] via [VECTOR]."
+Follow MITRE's template, in one of two forms:
+- "[PROBLEM TYPE] in [COMPONENT] in [PRODUCT] [VERSION] allows [ATTACKER] to [IMPACT] via [VECTOR]."
   e.g. "A heap-based buffer overflow in the DTLS fragment reassembly in gnutls before 3.8.5 allows remote attackers to cause a denial of service via crafted DTLS records."
-- with `root_cause`: "[COMPONENT] in [PRODUCT] [VERSION] [ROOT CAUSE], which allows [ATTACKER] to [IMPACT] via [VECTOR]."
+- "[COMPONENT] in [PRODUCT] [VERSION] [ROOT CAUSE], which allows [ATTACKER] to [IMPACT] via [VECTOR]."
   e.g. "The SRP authentication in gnutls before 3.8.5 does not reject a NUL character in the username, which allows remote attackers to bypass authentication via a crafted username."
-The product and version are filled in for you. Give `platforms` only if the flaw is specific to some.
+Take the product and the affected versions from the known facts. Add "on [PLATFORMS]" after the version only if the flaw is specific to some.
 
 STYLE:
-- Each part is a short phrase, not a sentence, and does not repeat the joining words ("in", "allows", "to", "via").
-- Use `problem_type` when a well-known kind of flaw names it; use `root_cause` when what the code does wrong says more.
+- One sentence of plain prose; add at most one more if needed.
+- No markdown, no headings, no lists, no code.
+- Use the first form when a well-known kind of flaw names it; use the second when what the code does wrong says more.
 - Do NOT mention commit hashes, line numbers, or the fix.
 - Do NOT speculate beyond the facts given.
 
-RULES:
-- If you need more context, you may call `read_commit` or `read_file` first.
-- After `write_description` has succeeded, call `finish` with a one-sentence summary."#;
+Reply with the description only. If you need more context, you may call `read_commit` or `read_file` first."#;
 
 /// Instructions for writing the title.
 pub const TITLE: &str = r#"You write the title of a CVE record.

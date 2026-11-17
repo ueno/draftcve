@@ -106,8 +106,6 @@ pub struct Cwe {
 
 pub struct Workspace {
     pub root: PathBuf,
-    /// The product name, as it appears in the description.
-    pub project: String,
     pub releases: Releases,
     /// Full hashes of the fixing commits.
     pub fixes: Vec<String>,
@@ -119,7 +117,6 @@ pub struct Workspace {
     pub cvss: Option<Cvss>,
     pub severity: Option<Severity>,
     pub cwe: Option<Cwe>,
-    pub description: Option<String>,
 
     /// The CWE catalog to check `write_cwe` against, if available.
     pub cwe_catalog: Option<Arc<Catalog>>,
@@ -223,31 +220,6 @@ pub struct WriteCweParams {
     pub name: String,
 }
 
-/// The slots of MITRE's description template, either
-/// "[PROBLEMTYPE] in [COMPONENT] in [PRODUCT] [VERSION] on [PLATFORMS] allows
-/// [ATTACKER] to [IMPACT] via [VECTOR]." or "[COMPONENT] in [PRODUCT]
-/// [VERSION] [ROOT CAUSE], which allows [ATTACKER] to [IMPACT] via [VECTOR]."
-/// The product and version are filled in from the findings.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub struct WriteDescriptionParams {
-    /// The kind of flaw, e.g. `A heap-based buffer overflow`. Give this or
-    /// `root_cause`, not both.
-    pub problem_type: Option<String>,
-    /// The affected component, e.g. `the DTLS fragment reassembly`.
-    pub component: String,
-    /// What the component does wrong, as a verb phrase, e.g. `does not check
-    /// the length of the username`. Give this or `problem_type`, not both.
-    pub root_cause: Option<String>,
-    /// The platforms, only if the flaw is specific to some, e.g. `Windows`.
-    pub platforms: Option<String>,
-    /// Who can exploit it, e.g. `remote attackers`.
-    pub attacker: String,
-    /// What they can do, as a verb phrase, e.g. `cause a denial of service`.
-    pub impact: String,
-    /// How, e.g. `a crafted certificate`.
-    pub vector: String,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct SearchCweParams {
     /// Words describing the weakness, e.g. `null terminated string length`.
@@ -317,7 +289,6 @@ impl Workspace {
             .with_context(|| format!("could not resolve {}", root.display()))?;
         Ok(Self {
             root,
-            project: String::new(),
             releases,
             fixes,
             fixed_in: FixedIn::default(),
@@ -327,7 +298,6 @@ impl Workspace {
             cvss: None,
             severity: None,
             cwe: None,
-            description: None,
             cwe_catalog: None,
             discouraged: BTreeSet::new(),
         })
@@ -484,85 +454,6 @@ impl Workspace {
             rationale,
         });
         Ok(text)
-    }
-
-    /// The affected versions as the description phrases them, e.g. ` before 3.8.5`.
-    fn version_phrase(&self) -> String {
-        let (introduced, fixed, last) = match &self.affected {
-            Some(affected) => (
-                affected.introduced.clone(),
-                affected.fixed.clone(),
-                affected.last_affected.clone(),
-            ),
-            None => (
-                None,
-                self.fixed_in.fixed.as_ref().map(|r| r.version.clone()),
-                self.fixed_in.last_affected.as_ref().map(|r| r.version.clone()),
-            ),
-        };
-        let mut text = introduced.map(|v| format!(" {v}")).unwrap_or_default();
-        if let Some(fixed) = fixed {
-            text.push_str(&format!(" before {fixed}"));
-        } else if let Some(last) = last {
-            text.push_str(&format!(" through {last}"));
-        }
-        text
-    }
-
-    /// Compose the description from the template's slots.
-    pub fn write_description(&mut self, params: &WriteDescriptionParams) -> Result<String> {
-        let slot = |name: &str, value: &str, lead: &str| -> Result<String> {
-            let mut value = value.trim().trim_end_matches(['.', ',']).trim();
-            // The template supplies the joining words; small models repeat them.
-            if value
-                .get(..lead.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(lead))
-            {
-                value = value[lead.len()..].trim_start();
-            }
-            if value.is_empty() {
-                bail!("`{name}` is empty");
-            }
-            if value.contains('\n') || value.contains(". ") {
-                bail!("`{name}` must be a single phrase, not sentences");
-            }
-            Ok(value.to_string())
-        };
-        let component = slot("component", &params.component, "in ")?;
-        let attacker = slot("attacker", &params.attacker, "allows ")?;
-        let impact = slot("impact", &params.impact, "to ")?;
-        let vector = slot("vector", &params.vector, "via ")?;
-        let platforms = match params.platforms.as_deref().map(str::trim) {
-            Some(platforms) if !platforms.is_empty() => {
-                format!(" on {}", slot("platforms", platforms, "on ")?)
-            }
-            _ => String::new(),
-        };
-        let product = format!("{}{}{platforms}", self.project, self.version_phrase());
-        let present = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
-        let text = match (present(&params.problem_type), present(&params.root_cause)) {
-            (true, false) => {
-                let problem = slot("problem_type", params.problem_type.as_deref().unwrap(), "")?;
-                format!(
-                    "{problem} in {component} in {product} allows {attacker} to {impact} via {vector}."
-                )
-            }
-            (false, true) => {
-                let cause = slot("root_cause", params.root_cause.as_deref().unwrap(), "")?;
-                format!(
-                    "{component} in {product} {cause}, which allows {attacker} to {impact} via {vector}."
-                )
-            }
-            _ => bail!("give exactly one of `problem_type` and `root_cause`"),
-        };
-        let mut chars = text.chars();
-        let text = match chars.next() {
-            Some(first) => first.to_uppercase().chain(chars).collect(),
-            None => text,
-        };
-        let reply = format!("Recorded the description: {text}");
-        self.description = Some(text);
-        Ok(reply)
     }
 
     pub fn search_cwe(&self, query: &str) -> Result<String> {
@@ -860,21 +751,10 @@ pub fn rate_tool_provider() -> Arc<dyn ToolProvider<Session>> {
     })
 }
 
-/// Tools for writing the description.
+/// Tools for writing prose.
 pub fn describe_tool_provider() -> Arc<dyn ToolProvider<Session>> {
     Arc::new(Tools {
-        tools: vec![
-            read_commit_tool(),
-            read_file_tool(),
-            tool(
-                "write_description",
-                "Record the CVE description. It is composed from these parts \
-                 in MITRE's template; the product and affected versions are \
-                 filled in for you.",
-                schema_for!(WriteDescriptionParams),
-            ),
-            finish_tool(),
-        ],
+        tools: vec![read_commit_tool(), read_file_tool(), finish_tool()],
     })
 }
 
@@ -956,11 +836,6 @@ fn dispatch(session: &Session, call: &CallToolRequestParams) -> Result<CallToolR
             let params = parse_args::<WriteSeverityParams>(&call.arguments)?;
             let mut workspace = session.workspace.lock().unwrap();
             text_result(workspace.write_severity(&params.rating, params.rationale)?)
-        }
-        "write_description" => {
-            let params = parse_args::<WriteDescriptionParams>(&call.arguments)?;
-            let mut workspace = session.workspace.lock().unwrap();
-            text_result(workspace.write_description(&params)?)
         }
         "search_cwe" => {
             let params = parse_args::<SearchCweParams>(&call.arguments)?;
@@ -1174,63 +1049,6 @@ mod tests {
         }
         assert!(!written.exists(), "{} was written", written.display());
         assert!(workspace.affected.is_none());
-    }
-
-    fn description(problem_type: Option<&str>, root_cause: Option<&str>) -> WriteDescriptionParams {
-        WriteDescriptionParams {
-            problem_type: problem_type.map(str::to_string),
-            component: "in the SRP authentication".into(),
-            root_cause: root_cause.map(str::to_string),
-            platforms: None,
-            attacker: "allows remote attackers".into(),
-            impact: "to bypass authentication".into(),
-            vector: "via a crafted username.".into(),
-        }
-    }
-
-    #[test]
-    fn the_description_follows_the_template() {
-        let (_dir, mut workspace) = workspace_with_catalog();
-        workspace.project = "gnutls".into();
-        workspace.fixed_in.fixed = Some(Release {
-            tag: "3.8.5".into(),
-            version: "3.8.5".into(),
-        });
-        workspace
-            .write_description(&description(Some("an improper NUL termination"), None))
-            .unwrap();
-        assert_eq!(
-            workspace.description.as_deref(),
-            Some(
-                "An improper NUL termination in the SRP authentication in gnutls before 3.8.5 \
-                 allows remote attackers to bypass authentication via a crafted username."
-            )
-        );
-        workspace
-            .write_description(&description(None, Some("does not reject a NUL character")))
-            .unwrap();
-        assert_eq!(
-            workspace.description.as_deref(),
-            Some(
-                "The SRP authentication in gnutls before 3.8.5 does not reject a NUL character, \
-                 which allows remote attackers to bypass authentication via a crafted username."
-            )
-        );
-    }
-
-    #[test]
-    fn a_description_needs_exactly_one_form() {
-        let (_dir, mut workspace) = workspace_with_catalog();
-        assert!(workspace.write_description(&description(None, None)).is_err());
-        assert!(
-            workspace
-                .write_description(&description(Some("a flaw"), Some("is broken")))
-                .is_err()
-        );
-        let mut params = description(Some("a flaw"), None);
-        params.impact = "Bypass it. Then more.".into();
-        assert!(workspace.write_description(&params).is_err());
-        assert!(workspace.description.is_none());
     }
 
     #[test]
