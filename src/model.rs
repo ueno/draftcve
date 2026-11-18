@@ -19,8 +19,8 @@ use std::sync::Arc;
 /// What a model call cost, for run logs.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Usage {
-    pub input_tokens: Option<i32>,
-    pub output_tokens: Option<i32>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
 }
 
 /// One inference call. Async because `goose_agent`'s `Inference` trait is.

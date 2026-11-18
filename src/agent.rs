@@ -19,8 +19,9 @@ use goose_agent::operation::{
     ends_turn, not_applicable, yielded,
 };
 use goose_agent::tool::{ToolOperation, ToolProvider};
+use goose_agent::tool_call_state::EXECUTABLE_KEY;
 use goose_providers::conversation::Conversation;
-use goose_providers::conversation::message::Message;
+use goose_providers::conversation::message::{Message, MessageContent};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -338,11 +339,12 @@ impl Inference<Session, ConversationEffect> for InferenceRunner {
         let next_turn = session.record.lock().unwrap().turns + 1;
         session.reporter.thinking(next_turn);
 
-        let (reply, usage) = self
+        let (mut reply, usage) = self
             .backend
             .complete(session.role.system, conversation.messages(), &input.tools)
             .await?;
         session.reporter.model_text(&reply.as_concat_text());
+        approve_tool_calls(&mut reply);
 
         let mut record = session.record.lock().unwrap();
         record.turns += 1;
@@ -355,6 +357,22 @@ impl Inference<Session, ConversationEffect> for InferenceRunner {
         drop(record);
 
         applied([ConversationEffect::AppendMessage(reply)])
+    }
+}
+
+/// `ToolOperation` runs only calls marked executable, a mark goose leaves to
+/// a `ToolApprovalOperation`. Our tools are read-only or write to the
+/// workspace, so nothing needs a user's confirmation: mark every call up front
+/// rather than run an approval step that allows everything.
+fn approve_tool_calls(message: &mut Message) {
+    for content in &mut message.content {
+        let MessageContent::ToolRequest(request) = content else {
+            continue;
+        };
+        let meta = request.tool_meta.get_or_insert_with(|| serde_json::json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert(EXECUTABLE_KEY.to_string(), true.into());
+        }
     }
 }
 
