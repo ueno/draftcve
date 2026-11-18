@@ -1,8 +1,8 @@
 //! The agent loop, driven by `goose_agent`'s `StateMachine`.
 //!
-//! Operations are ours because goose's are not public API yet. The machine tries
-//! each step in order per iteration; the first that applies produces effects and
-//! the loop repeats.
+//! The turn limit is goose's stock [`MaxTurnsOperation`]; the rest are ours. The
+//! machine tries each step in order per iteration; the first that applies
+//! produces effects and the loop repeats.
 //!
 //! One sharp edge: `StateMachine::step` always reaches the inference step and
 //! does not consult `Inference::applies`, so a prose reply with no tool calls
@@ -14,14 +14,16 @@ use crate::tools::{self, Workspace};
 use anyhow::Result;
 use async_trait::async_trait;
 use goose_agent::machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step};
+use goose_agent::max_turns::MaxTurnsOperation;
 use goose_agent::operation::{
     ConversationEffect, Emitter, Inference, InferenceInput, Operation, OperationResult, applied,
-    ends_turn, not_applicable, yielded,
+    ends_turn, not_applicable, trailing_error, yielded,
 };
 use goose_agent::tool::{ToolOperation, ToolProvider};
 use goose_agent::tool_call_state::EXECUTABLE_KEY;
+use goose_agent::unhandled_tool_calls::UnhandledToolCallsOperation;
 use goose_providers::conversation::Conversation;
-use goose_providers::conversation::message::{Message, MessageContent};
+use goose_providers::conversation::message::{Message, MessageContent, MessageErrorKind};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -38,10 +40,10 @@ pub struct Role {
     /// Instructions.
     pub system: &'static str,
     /// Give up after this many turns.
-    pub max_turns: usize,
-    /// Start warning the model when this many turns remain.
-    pub warn_at: usize,
-    /// How to phrase the warning. `{remaining}` is substituted.
+    pub max_turns: u32,
+    /// Start advising the model when this many turns remain.
+    pub warn_at: u32,
+    /// Role-specific advice sent alongside goose's turn budget near the end.
     pub warning: &'static str,
     /// What running out means for this role.
     pub exhausted: &'static str,
@@ -54,7 +56,7 @@ pub const AFFECTED: Role = Role {
     max_turns: 32,
     warn_at: 4,
     exhausted: "could not determine the affected versions",
-    warning: "You have {remaining} retries left before this run is stopped. \
+    warning: "You are about to run out of turns. \
               Call `write_affected_versions` with your best candidate commit now, \
               even if you are not completely sure. Then call `finish`.",
 };
@@ -66,7 +68,7 @@ pub const SCORE: Role = Role {
     max_turns: 16,
     warn_at: 4,
     exhausted: "could not score the vulnerability",
-    warning: "You have {remaining} retries left before this run is stopped. \
+    warning: "You are about to run out of turns. \
               Record your assessment now, even if you are not completely sure. \
               Then call `finish`.",
 };
@@ -78,7 +80,7 @@ pub const RATE: Role = Role {
     max_turns: 8,
     warn_at: 3,
     exhausted: "could not rate the vulnerability",
-    warning: "You have {remaining} retries left before this run is stopped. \
+    warning: "You are about to run out of turns. \
               Call `write_severity` with your best rating now. Then call `finish`.",
 };
 
@@ -89,7 +91,7 @@ pub const DESCRIBE: Role = Role {
     max_turns: 8,
     warn_at: 3,
     exhausted: "could not write the description",
-    warning: "You have {remaining} retries left before this run is stopped. \
+    warning: "You are about to run out of turns. \
               Write the description now, as plain prose.",
 };
 
@@ -121,8 +123,6 @@ pub struct Record {
     pub result: Option<String>,
     usage: Usage,
     turns: usize,
-    /// Remaining-turn count at the last warning, so each is issued once.
-    warned_at: Option<usize>,
     /// Reminders sent about outstanding `write_*` calls.
     nudges: usize,
     /// `write_*` tools the model has yet to call.
@@ -197,62 +197,6 @@ impl EffectHandler<Session, ConversationEffect> for Runtime {
             }
         }
         Ok(())
-    }
-}
-
-/// Stop before an agent runs away, and warn it as the limit approaches.
-///
-/// Hitting the limit is a failure: the run is discarded and the user waited for
-/// nothing. Telling the model how many turns remain lets it land somewhere
-/// useful instead.
-/// Without this a small model will happily search until it exhausts its context.
-struct MaxTurnsOperation;
-
-#[async_trait]
-impl Operation<Session, ConversationEffect> for MaxTurnsOperation {
-    fn name(&self) -> &'static str {
-        "max_turns"
-    }
-
-    async fn run(
-        &self,
-        session: &Session,
-        conversation: &Conversation,
-        _emit: &Emitter,
-    ) -> Result<OperationResult<ConversationEffect>> {
-        let role = session.role;
-        let record = session.record.lock().unwrap();
-        if record.turns >= role.max_turns {
-            drop(record);
-            session
-                .reporter
-                .warn(&format!("gave up: {}", role.exhausted));
-            return yielded();
-        }
-
-        let remaining = role.max_turns - record.turns;
-        if remaining > role.warn_at || record.warned_at == Some(remaining) {
-            return not_applicable();
-        }
-        drop(record);
-
-        // Never nag a model that has stopped asking for tools. Warning after a
-        // prose reply restarts a finished conversation, and the model — having
-        // already answered — spends the rest of its budget saying so.
-        if ends_turn(conversation.messages()) {
-            return not_applicable();
-        }
-        let mut record = session.record.lock().unwrap();
-        // Once per turn, not once per run: a model that ignores the first
-        // warning should see the number fall.
-        record.warned_at = Some(remaining);
-        drop(record);
-
-        let text = role.warning.replace("{remaining}", &remaining.to_string());
-        session.reporter.warn(&text);
-        applied([ConversationEffect::AppendMessage(
-            Message::user().agent_visible_content().with_text(text),
-        )])
     }
 }
 
@@ -339,9 +283,14 @@ impl Inference<Session, ConversationEffect> for InferenceRunner {
         let next_turn = session.record.lock().unwrap().turns + 1;
         session.reporter.thinking(next_turn);
 
+        let mut messages = conversation.messages().to_vec();
+        if let Some(context) = turn_context(session.role, next_turn, input.moim_parts) {
+            session.reporter.warn(&context);
+            messages.push(Message::user().agent_visible_content().with_text(context));
+        }
         let (mut reply, usage) = self
             .backend
-            .complete(session.role.system, conversation.messages(), &input.tools)
+            .complete(session.role.system, &messages, &input.tools)
             .await?;
         session.reporter.model_text(&reply.as_concat_text());
         approve_tool_calls(&mut reply);
@@ -358,6 +307,24 @@ impl Inference<Session, ConversationEffect> for InferenceRunner {
 
         applied([ConversationEffect::AppendMessage(reply)])
     }
+}
+
+/// Context for the coming turn: what operations contributed, chiefly
+/// [`MaxTurnsOperation`]'s turn budget, plus the role's advice once few turns
+/// remain.
+///
+/// Sent with the request rather than kept in the conversation, since it is
+/// stale by the next turn.
+///
+/// Hitting the limit is a failure: the run is discarded and the user waited for
+/// nothing. Telling the model how many turns remain lets it land somewhere
+/// useful instead.
+fn turn_context(role: Role, next_turn: usize, mut parts: Vec<String>) -> Option<String> {
+    let remaining = (role.max_turns as usize + 1).saturating_sub(next_turn);
+    if remaining <= role.warn_at as usize {
+        parts.push(role.warning.to_string());
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
 /// `ToolOperation` runs only calls marked executable, a mark goose leaves to
@@ -422,10 +389,12 @@ impl Agent {
 
         let steps: Vec<Step<'_, Session, ConversationEffect>> = vec![
             Step::Operation(Arc::new(EndTurnOperation)),
-            Step::Operation(Arc::new(MaxTurnsOperation)),
+            Step::Operation(Arc::new(MaxTurnsOperation::new(self.role.max_turns))),
             Step::Operation(Arc::new(
                 ToolOperation::new().with_provider((self.role.tools)()),
             )),
+            // Answer calls to tools the role lacks, so each turn is counted.
+            Step::Operation(Arc::new(UnhandledToolCallsOperation::new())),
             Step::Inference(Arc::new(InferenceRunner {
                 backend: self.backend.clone(),
             })),
@@ -446,6 +415,12 @@ impl Agent {
                 while rx.recv().await.is_some() {}
                 result
             })?;
+
+        if trailing_error(&runtime.conversation.lock().unwrap())
+            == Some(MessageErrorKind::ResourceExhausted)
+        {
+            self.reporter.warn(&format!("gave up: {}", self.role.exhausted));
+        }
 
         // `record` holds clones of these, so copy the data out.
         let (result, usage, turns) = {
