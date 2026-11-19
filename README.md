@@ -79,6 +79,15 @@ The main arguments are:
   disagree. It is not added to the record
 - `--finder NAME`: a name to credit as a finder, in addition to
   those in `Reported-by:` trailers; may be repeated
+- `--issue-url URL`: the URL prefix of issues, to which the issue
+  number is appended for an `issue-tracking` reference (default:
+  `<repo-url>/issues/`)
+- `--issue-format`: a regular expression matching issue references in
+  `Fixes:`, `Closes:` and `Resolves:` trailers, whose first capture
+  group is the issue number. May be repeated; the first that matches
+  wins. The default accepts `#123` and GitHub or GitLab issue URLs.
+  For example, with Bugzilla:
+  `--issue-url 'https://bugzilla.redhat.com/show_bug.cgi?id=' --issue-format '^(?:rhbz#|https://bugzilla\.redhat\.com/show_bug\.cgi\?id=)(\d+)$'`
 - `--var KEY=VALUE`: extra template variables, such as
   `assigner_org_id` or `advisory_url`
 - `--cwe-catalog`: the CWE catalog (see above)

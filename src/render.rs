@@ -110,6 +110,7 @@ mod tests {
                 "project": "demo",
                 "generator": "cve-report",
                 "repo_url": null,
+                "issue_url": null,
                 "commits": [],
                 "issues": [],
                 "advisories": [],
@@ -126,6 +127,40 @@ mod tests {
         assert_eq!(
             metric(json!({"rating": "Low", "rationale": null})),
             json!({"value": "Low"})
+        );
+    }
+
+    #[test]
+    fn issues_are_referenced_without_a_repository() {
+        let references = |issue_url: Value, vars: Value| {
+            let context = json!({
+                "cve_id": "CVE-2025-0001",
+                "project": "demo",
+                "generator": "cve-report",
+                "repo_url": null,
+                "issue_url": issue_url,
+                "commits": [],
+                "issues": ["42"],
+                "advisories": [],
+                "vars": vars,
+            });
+            let record = render(DEFAULT_TEMPLATE, "default.json.j2", &context).unwrap();
+            record["containers"]["cna"]["references"].clone()
+        };
+        assert_eq!(
+            references(json!("https://bugs.example.org/show_bug.cgi?id="), json!({})),
+            json!([{
+                "url": "https://bugs.example.org/show_bug.cgi?id=42",
+                "tags": ["issue-tracking"]
+            }])
+        );
+        assert_eq!(
+            references(json!(null), json!({"issue_url": "https://example.org/i/"}))[0]["url"],
+            json!("https://example.org/i/42")
+        );
+        assert_eq!(
+            references(json!(null), json!({}))[0]["url"],
+            json!("https://www.cve.org/CVERecord?id=CVE-2025-0001")
         );
     }
 

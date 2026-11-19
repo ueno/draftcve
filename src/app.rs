@@ -88,6 +88,12 @@ struct GenerateArgs {
     /// Public URL of the repository (default: derived from the `origin` remote)
     #[arg(long)]
     repo_url: Option<String>,
+    /// URL prefix of issues, to which the issue number is appended (default: <repo-url>/issues/)
+    #[arg(long, value_name = "URL")]
+    issue_url: Option<String>,
+    /// Regex matching issue references in `Fixes:`, `Closes:` and `Resolves:` trailers; the first capture group is the issue number; may be repeated, the first match wins
+    #[arg(long = "issue-format", value_name = "REGEX", default_values = DEFAULT_ISSUE_FORMATS)]
+    issue_formats: Vec<String>,
     /// Comma-separated severity ratings defined by the policy
     #[arg(
         long,
@@ -224,6 +230,8 @@ struct TemplateContext<'a> {
     cve_id: &'a str,
     project: &'a str,
     repo_url: Option<&'a str>,
+    /// URL prefix of issues; `issue_url ~ issues[i]` is the issue's URL.
+    issue_url: Option<String>,
     title: Option<String>,
     description: Option<String>,
     affected: Option<Affected>,
@@ -274,17 +282,32 @@ fn person(value: &str) -> String {
     }
 }
 
-/// An issue number from `#123` or an issue URL.
-fn issue_number(value: &str) -> Option<String> {
+/// Issue references as `#123`, or as GitHub or GitLab issue URLs.
+const DEFAULT_ISSUE_FORMATS: [&str; 2] = [r"^#(\d+)$", r"/(?:issues|work_items)/(\d+)$"];
+
+fn issue_formats(formats: &[impl AsRef<str>]) -> Result<Vec<Regex>> {
+    formats
+        .iter()
+        .map(|format| {
+            let format = format.as_ref();
+            let regex = Regex::new(format)
+                .with_context(|| format!("invalid issue format `{format}`"))?;
+            if regex.captures_len() < 2 {
+                bail!("issue format `{format}` needs a capture group for the issue number");
+            }
+            Ok(regex)
+        })
+        .collect()
+}
+
+/// The issue number in `value`, from the first format that matches.
+fn issue_number(value: &str, formats: &[Regex]) -> Option<String> {
     let value = value.trim();
-    if let Some(number) = value.strip_prefix('#')
-        && !number.is_empty()
-        && number.chars().all(|c| c.is_ascii_digit())
-    {
-        return Some(number.to_string());
-    }
-    let re = Regex::new(r"/(?:issues|work_items)/(\d+)$").unwrap();
-    re.captures(value).map(|captures| captures[1].to_string())
+    formats.iter().find_map(|regex| {
+        let captures = regex.captures(value)?;
+        let number = captures.iter().skip(1).flatten().next()?.as_str();
+        Some(number.to_string()).filter(|number| !number.is_empty())
+    })
 }
 
 fn cvss_in(text: &str) -> Option<Cvss> {
@@ -552,6 +575,12 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         crate::progress::Reporter::new()
             .warn("no public repository URL; pass --repo-url to add references");
     }
+    let issue_url = args.issue_url.clone().or_else(|| {
+        repo_url
+            .as_ref()
+            .map(|url| format!("{}/issues/", url.trim_end_matches('/')))
+    });
+    let issue_formats = issue_formats(&args.issue_formats)?;
 
     let fixes = args
         .commits
@@ -621,7 +650,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
     let mut issues = vec![];
     let mut advisories = vec![];
     for value in values(&["Fixes", "Closes", "Resolves"]) {
-        if let Some(number) = issue_number(&value) {
+        if let Some(number) = issue_number(&value, &issue_formats) {
             if !issues.contains(&number) {
                 issues.push(number);
             }
@@ -857,6 +886,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         cve_id: &cve,
         project: &project,
         repo_url: repo_url.as_deref(),
+        issue_url,
         title,
         description,
         affected: workspace.affected.clone(),
@@ -1107,12 +1137,24 @@ mod tests {
             person("Joshua Rogers of AISLE Research Team <joshua@joshua.hu>"),
             "Joshua Rogers of AISLE Research Team"
         );
-        assert_eq!(issue_number("#1850").as_deref(), Some("1850"));
+        let formats = issue_formats(&DEFAULT_ISSUE_FORMATS).unwrap();
+        assert_eq!(issue_number("#1850", &formats).as_deref(), Some("1850"));
         assert_eq!(
-            issue_number("https://gitlab.com/gnutls/gnutls/-/issues/1850").as_deref(),
+            issue_number("https://gitlab.com/gnutls/gnutls/-/issues/1850", &formats).as_deref(),
             Some("1850")
         );
-        assert_eq!(issue_number("GNUTLS-SA-2026-04-29-4"), None);
+        assert_eq!(issue_number("GNUTLS-SA-2026-04-29-4", &formats), None);
+
+        let bugzilla = r"^(?:rhbz#|https://bugzilla\.redhat\.com/show_bug\.cgi\?id=)(\d+)$";
+        let formats = issue_formats(&[bugzilla]).unwrap();
+        assert_eq!(
+            issue_number("rhbz#2345678", &formats).as_deref(),
+            Some("2345678")
+        );
+        let url = "https://bugzilla.redhat.com/show_bug.cgi?id=2345678";
+        assert_eq!(issue_number(url, &formats).as_deref(), Some("2345678"));
+        assert_eq!(issue_number("#1850", &formats), None);
+        assert!(issue_formats(&[r"^#\d+$"]).is_err());
     }
 
     #[test]

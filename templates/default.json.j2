@@ -11,14 +11,15 @@
     vendor               vendor name; when set, affected entries use
                          vendor/product instead of packageName/collectionURL
     commit_url           commit URL prefix (default: <repo_url>/commit/)
-    issue_url            issue URL prefix (default: <repo_url>/issues/)
+    issue_url            issue URL prefix (default: --issue-url, or
+                         <repo_url>/issues/)
     advisory_url         URL prefix for `advisories`, i.e. `Fixes:` trailer
                          values that are neither issues nor CVEs (default:
                          advisories are not referenced)
 -#}
 {%- set org_id = vars.assigner_org_id | default("00000000-0000-4000-9000-000000000000") -%}
 {%- set commit_url = vars.commit_url | default(repo_url ~ "/commit/") -%}
-{%- set issue_url = vars.issue_url | default(repo_url ~ "/issues/") -%}
+{%- set issue_url = vars.issue_url | default(issue_url) -%}
 
 {%- set metrics = [] -%}
 {%- if severity -%}
@@ -44,6 +45,8 @@
   {%- for commit in commits -%}
     {%- set ns.references = ns.references + [{"url": commit_url ~ commit.id, "name": commit.subject, "tags": ["patch"]}] -%}
   {%- endfor -%}
+{%- endif -%}
+{%- if issue_url -%}
   {%- for issue in issues -%}
     {%- set ns.references = ns.references + [{"url": issue_url ~ issue, "tags": ["issue-tracking"]}] -%}
   {%- endfor -%}
