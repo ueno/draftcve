@@ -1,0 +1,32 @@
+blob
+mark :1
+data 28
+int f(void) {
+  return 0;
+}
+
+reset refs/heads/main
+commit refs/heads/main
+mark :2
+author Test <test@example.com> 1767243600 +0000
+committer Test <test@example.com> 1767243600 +0000
+data 8
+initial
+M 100644 :1 src/lib.c
+
+blob
+mark :3
+data 28
+int f(void) {
+  return 1;
+}
+
+commit refs/heads/main
+mark :4
+author Test <test@example.com> 1767247200 +0000
+committer Test <test@example.com> 1767247200 +0000
+data 4
+fix
+from :2
+M 100644 :3 src/lib.c
+

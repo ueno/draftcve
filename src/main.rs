@@ -2,6 +2,8 @@ mod agent;
 mod app;
 mod cvss;
 mod cwe;
+#[cfg(test)]
+mod fixtures;
 mod git;
 mod model;
 mod progress;

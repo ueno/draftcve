@@ -537,7 +537,6 @@ mod tests {
     use rmcp::model::{CallToolRequestParams, Tool};
     use std::collections::VecDeque;
     use std::path::Path;
-    use std::process::Command;
 
     /// Replays canned replies, the way a small model might misbehave, and
     /// keeps what it was shown.
@@ -574,44 +573,11 @@ mod tests {
         Message::assistant().with_tool_request(format!("call-{id}"), Ok(params))
     }
 
-    fn git(dir: &Path, args: &[&str]) -> String {
-        let output = Command::new("git")
-            .args(["-c", "user.name=T", "-c", "user.email=t@example.com"])
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "git {args:?} failed");
-        String::from_utf8(output.stdout).unwrap().trim().to_string()
-    }
-
-    /// v1.0 is clean, v1.1 introduces the flaw, v1.2 refactors it, v1.3 fixes it.
+    /// The fixture's introducing commit and its fix.
     fn repository(dir: &Path) -> (String, String) {
-        git(dir, &["init", "-q"]);
-        let commit = |text: &str, message: &str, tag: &str| {
-            std::fs::write(dir.join("lib.c"), text).unwrap();
-            git(dir, &["add", "lib.c"]);
-            git(dir, &["commit", "-q", "-m", message]);
-            git(dir, &["tag", tag]);
-            git(dir, &["rev-parse", "HEAD"])
-        };
-        commit("int f(char *s) {\n  return 0;\n}\n", "initial", "v1.0");
-        let introduced = commit(
-            "int f(char *s) {\n  return strlen(s);\n}\n",
-            "allow binary names",
-            "v1.1",
-        );
-        commit(
-            "int f(char *name) {\n  return strlen(name);\n}\n",
-            "rename argument",
-            "v1.2",
-        );
-        let fix = commit(
-            "int f(char *name, size_t len) {\n  return len;\n}\n",
-            "fix length of binary names",
-            "v1.3",
-        );
-        (introduced, fix)
+        crate::fixtures::import(crate::fixtures::HISTORY, dir);
+        let resolve = |tag| crate::git::resolve(dir, tag).unwrap();
+        (resolve("v1.1"), resolve("v1.3"))
     }
 
     #[tokio::test]

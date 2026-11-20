@@ -1,0 +1,67 @@
+blob
+mark :1
+data 31
+int f(char *s) {
+  return 0;
+}
+
+reset refs/tags/v1.0
+commit refs/tags/v1.0
+mark :2
+author Test <test@example.com> 1767229200 +0000
+committer Test <test@example.com> 1767229200 +0000
+data 8
+initial
+M 100644 :1 lib.c
+
+blob
+mark :3
+data 39
+int f(char *s) {
+  return strlen(s);
+}
+
+commit refs/tags/v1.1
+mark :4
+author Test <test@example.com> 1767232800 +0000
+committer Test <test@example.com> 1767232800 +0000
+data 19
+allow binary names
+from :2
+M 100644 :3 lib.c
+
+blob
+mark :5
+data 45
+int f(char *name) {
+  return strlen(name);
+}
+
+commit refs/tags/v1.2
+mark :6
+author Test <test@example.com> 1767236400 +0000
+committer Test <test@example.com> 1767236400 +0000
+data 16
+rename argument
+from :4
+M 100644 :5 lib.c
+
+blob
+mark :7
+data 48
+int f(char *name, size_t len) {
+  return len;
+}
+
+commit refs/heads/main
+mark :8
+author Test <test@example.com> 1767240000 +0000
+committer Test <test@example.com> 1767240000 +0000
+data 27
+fix length of binary names
+from :6
+M 100644 :7 lib.c
+
+reset refs/tags/v1.3
+from :8
+

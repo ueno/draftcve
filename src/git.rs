@@ -247,10 +247,7 @@ mod tests {
     fn an_fsmonitor_hook_is_not_run() {
         let dir = tempdir::TempDir::new("cve-report-fsmonitor").unwrap();
         let (repo, marker) = (dir.path().join("repo"), dir.path().join("ran"));
-        std::fs::create_dir(&repo).unwrap();
-        capture(&repo, &["init", "-q"]).unwrap();
-        std::fs::write(repo.join("f"), "a\n").unwrap();
-        capture(&repo, &["add", "f"]).unwrap();
+        crate::fixtures::import(crate::fixtures::SIMPLE, &repo);
         let hook = format!("touch {}", marker.display());
         std::process::Command::new("git")
             .args(["config", "core.fsmonitor", &hook])

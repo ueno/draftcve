@@ -954,30 +954,13 @@ mod tests {
         );
     }
 
-    fn git(dir: &Path, args: &[&str]) -> String {
-        let output = std::process::Command::new("git")
-            .args(["-c", "user.name=T", "-c", "user.email=t@example.com"])
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "git {args:?} failed");
-        String::from_utf8(output.stdout).unwrap().trim().to_string()
-    }
-
     /// A repository with two commits, and a secret file outside it.
     fn workspace_with_repository() -> (tempdir::TempDir, Workspace) {
         let dir = tempdir::TempDir::new("cve-report-tools").unwrap();
         let repo = dir.path().join("repo");
-        std::fs::create_dir_all(repo.join("src")).unwrap();
+        crate::fixtures::import(crate::fixtures::SIMPLE, &repo);
         std::fs::write(dir.path().join("secret"), "SECRET-CONTENTS\n").unwrap();
-        git(&repo, &["init", "-q"]);
-        std::fs::write(repo.join("src/lib.c"), "int f(void) {\n  return 0;\n}\n").unwrap();
-        git(&repo, &["add", "."]);
-        git(&repo, &["commit", "-q", "-m", "initial"]);
-        std::fs::write(repo.join("src/lib.c"), "int f(void) {\n  return 1;\n}\n").unwrap();
-        git(&repo, &["commit", "-q", "-a", "-m", "fix"]);
-        let fix = git(&repo, &["rev-parse", "HEAD"]);
+        let fix = crate::git::resolve(&repo, "HEAD").unwrap();
         let releases = Releases::new(&repo, &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(&repo, releases, vec![fix]).unwrap();
         (dir, workspace)
