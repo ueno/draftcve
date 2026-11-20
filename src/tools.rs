@@ -10,11 +10,11 @@ use crate::cwe::{Catalog, Verdict};
 use crate::release::{Release, Releases};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use goose_agent::{
+use oi_kit_agent::{
     operation::{Emitter, messages_since_kickoff},
     tool::ToolProvider,
 };
-use goose_providers::conversation::message::MessageContent;
+use oi_kit_providers::conversation::message::MessageContent;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ErrorData, JsonObject, Tool,
 };

@@ -148,7 +148,10 @@ mod tests {
             record["containers"]["cna"]["references"].clone()
         };
         assert_eq!(
-            references(json!("https://bugs.example.org/show_bug.cgi?id="), json!({})),
+            references(
+                json!("https://bugs.example.org/show_bug.cgi?id="),
+                json!({})
+            ),
             json!([{
                 "url": "https://bugs.example.org/show_bug.cgi?id=42",
                 "tags": ["issue-tracking"]

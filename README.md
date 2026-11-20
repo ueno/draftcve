@@ -141,7 +141,7 @@ template.
 
 ## How it works
 
-cve-report is built using the [goose Development Kit (GDK)][gdk], in
+cve-report is built using the [Open Intelligence Kit (oi-kit)][oi-kit], in
 the same architecture as [package-rebase-planner][package-rebase-planner].
 A record is produced in up to five agent runs. Each run has a narrow
 goal, because a small model loses track of a long checklist:
@@ -233,7 +233,7 @@ into the binary, include `LICENSE-FIRST` with binary distributions.
 [cvss]: https://www.first.org/cvss/v3.1/specification-document
 [cvss-calc]: https://www.first.org/cvss/calculator/3.1
 [minijinja]: https://github.com/mitsuhiko/minijinja
-[declarative-providers]: https://github.com/aaif-goose/goose/tree/main/crates/goose-providers#declarative-providers
+[declarative-providers]: https://github.com/aaif-goose/goose/tree/main/crates/oi-kit-providers#declarative-providers
 [package-rebase-planner]: https://github.com/ueno/package-rebase-planner
 [ramalama]: https://ramalama.ai
-[gdk]: https://goose-docs.ai/docs/gdk/
+[oi-kit]: https://goose-docs.ai/docs/gdk/

@@ -1,4 +1,4 @@
-//! The agent loop, driven by `goose_agent`'s `StateMachine`.
+//! The agent loop, driven by `oi_kit_agent`'s `StateMachine`.
 //!
 //! The turn limit is goose's stock [`MaxTurnsOperation`]; the rest are ours. The
 //! machine tries each step in order per iteration; the first that applies
@@ -13,17 +13,17 @@ use crate::progress::Reporter;
 use crate::tools::{self, Workspace};
 use anyhow::Result;
 use async_trait::async_trait;
-use goose_agent::machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step};
-use goose_agent::max_turns::MaxTurnsOperation;
-use goose_agent::operation::{
+use oi_kit_agent::machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step};
+use oi_kit_agent::max_turns::MaxTurnsOperation;
+use oi_kit_agent::operation::{
     ConversationEffect, Emitter, Inference, InferenceInput, Operation, OperationResult, applied,
     ends_turn, not_applicable, trailing_error, yielded,
 };
-use goose_agent::tool::{ToolOperation, ToolProvider};
-use goose_agent::tool_call_state::EXECUTABLE_KEY;
-use goose_agent::unhandled_tool_calls::UnhandledToolCallsOperation;
-use goose_providers::conversation::Conversation;
-use goose_providers::conversation::message::{Message, MessageContent, MessageErrorKind};
+use oi_kit_agent::tool::{ToolOperation, ToolProvider};
+use oi_kit_agent::tool_call_state::EXECUTABLE_KEY;
+use oi_kit_agent::unhandled_tool_calls::UnhandledToolCallsOperation;
+use oi_kit_providers::conversation::Conversation;
+use oi_kit_providers::conversation::message::{Message, MessageContent, MessageErrorKind};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -336,7 +336,9 @@ fn approve_tool_calls(message: &mut Message) {
         let MessageContent::ToolRequest(request) = content else {
             continue;
         };
-        let meta = request.tool_meta.get_or_insert_with(|| serde_json::json!({}));
+        let meta = request
+            .tool_meta
+            .get_or_insert_with(|| serde_json::json!({}));
         if let Some(meta) = meta.as_object_mut() {
             meta.insert(EXECUTABLE_KEY.to_string(), true.into());
         }
@@ -419,7 +421,8 @@ impl Agent {
         if trailing_error(&runtime.conversation.lock().unwrap())
             == Some(MessageErrorKind::ResourceExhausted)
         {
-            self.reporter.warn(&format!("gave up: {}", self.role.exhausted));
+            self.reporter
+                .warn(&format!("gave up: {}", self.role.exhausted));
         }
 
         // `record` holds clones of these, so copy the data out.

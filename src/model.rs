@@ -5,14 +5,14 @@
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use goose_providers::api_client::TlsConfig;
-use goose_providers::base::Provider;
-use goose_providers::conversation::message::Message;
-use goose_providers::declarative::{
+use oi_kit_providers::api_client::TlsConfig;
+use oi_kit_providers::base::Provider;
+use oi_kit_providers::conversation::message::Message;
+use oi_kit_providers::declarative::{
     self, DeclarativeProviderConfig, EnvKeyResolver, KeyResolver, ProviderEngine,
 };
-use goose_providers::model::ModelConfig;
-use goose_providers::{anthropic, ollama, openai};
+use oi_kit_providers::model::ModelConfig;
+use oi_kit_providers::{anthropic, ollama, openai};
 use rmcp::model::Tool;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub struct Usage {
     pub output_tokens: Option<i64>,
 }
 
-/// One inference call. Async because `goose_agent`'s `Inference` trait is.
+/// One inference call. Async because `oi_kit_agent`'s `Inference` trait is.
 #[async_trait]
 pub trait Backend: Send + Sync {
     async fn complete(

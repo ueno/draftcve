@@ -339,7 +339,8 @@ fn apply_defaults(args: &mut GenerateArgs) {
     if args.severity_levels.is_empty() {
         args.severity_levels = strings(&DEFAULT_SEVERITY_LEVELS);
     }
-    args.version_type.get_or_insert_with(|| "semver".to_string());
+    args.version_type
+        .get_or_insert_with(|| "semver".to_string());
     args.parallel.get_or_insert(NonZeroUsize::MIN);
 }
 
@@ -348,8 +349,8 @@ fn issue_formats(formats: &[impl AsRef<str>]) -> Result<Vec<Regex>> {
         .iter()
         .map(|format| {
             let format = format.as_ref();
-            let regex = Regex::new(format)
-                .with_context(|| format!("invalid issue format `{format}`"))?;
+            let regex =
+                Regex::new(format).with_context(|| format!("invalid issue format `{format}`"))?;
             if regex.captures_len() < 2 {
                 bail!("issue format `{format}` needs a capture group for the issue number");
             }

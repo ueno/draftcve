@@ -42,8 +42,8 @@ impl Releases {
             .iter()
             .map(|format| {
                 let format = format.as_ref();
-                let regex = Regex::new(format)
-                    .with_context(|| format!("invalid tag format `{format}`"))?;
+                let regex =
+                    Regex::new(format).with_context(|| format!("invalid tag format `{format}`"))?;
                 if regex.captures_len() < 2 {
                     bail!("tag format `{format}` needs at least one capture group for the version");
                 }
@@ -144,7 +144,11 @@ mod tests {
     fn the_first_matching_format_wins() {
         let releases = Releases::new(
             Path::new("."),
-            &[r"^(\d+\.\d+\.\d+)$", r"^gnutls_(\d+)_(\d+)_(\d+)$", r"^(\d+)\..*$"],
+            &[
+                r"^(\d+\.\d+\.\d+)$",
+                r"^gnutls_(\d+)_(\d+)_(\d+)$",
+                r"^(\d+)\..*$",
+            ],
         )
         .unwrap();
         assert_eq!(releases.version_of("3.8.13").as_deref(), Some("3.8.13"));

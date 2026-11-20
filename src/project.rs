@@ -62,8 +62,8 @@ impl ProjectConfig {
         };
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("could not read {}", path.display()))?;
-        let mut config: Self = toml::from_str(&raw)
-            .with_context(|| format!("could not parse {}", path.display()))?;
+        let mut config: Self =
+            toml::from_str(&raw).with_context(|| format!("could not parse {}", path.display()))?;
         config.resolve_paths(path.parent().unwrap_or(Path::new("")));
         Ok(Some((path, config)))
     }
