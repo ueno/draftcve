@@ -81,8 +81,12 @@ The main arguments are:
   issue that disclosed the vulnerability. The model reads it alongside
   the fix in every step, but is told to trust the fix where the two
   disagree. It is not added to the record
-- `--finder NAME`: a name to credit as a finder, in addition to
-  those in `Reported-by:` trailers; may be repeated
+- `--credit TYPE=NAME`: a name to credit, in addition to those in
+  trailers of the fixing commits (see [How it works](#how-it-works)).
+  TYPE is a role of the CVE record format: `finder`, `reporter`,
+  `analyst`, `coordinator`, `remediation-developer`,
+  `remediation-reviewer`, `remediation-verifier`, `tool`, `sponsor`,
+  or `other`. May be repeated, e.g. `--credit 'finder=Jane Doe' --credit 'remediation-developer=John Doe'`
 - `--issue-url URL`: the URL prefix of issues, to which the issue
   number is appended for an `issue-tracking` reference (default:
   `<repo-url>/issues/`)
@@ -129,7 +133,7 @@ assigner_org_id = "..."
 ```
 
 Options about a single vulnerability, such as `--introduced`,
-`--title`, or `--finder`, are only taken from the command line.
+`--title`, or `--credit`, are only taken from the command line.
 
 ### Writing templates
 
@@ -194,7 +198,9 @@ This helps only when the model server takes concurrent requests (e.g.
 `llama-server --parallel N`), or when the tasks use different models.
 
 Facts that git already records are taken from the commits directly:
-credits from `Reported-by:`, issue numbers and advisory identifiers from
+credits from `Reported-by:` (finder), `Signed-off-by:` (remediation
+developer), `Reviewed-by:` (remediation reviewer), and `Tested-by:`
+(remediation verifier), issue numbers and advisory identifiers from
 `Fixes:`/`Closes:`/`Resolves:`, and the public date from the release tag.
 
 To keep a small model on track:

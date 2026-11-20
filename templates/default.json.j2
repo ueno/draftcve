@@ -116,10 +116,10 @@
             {%- if date_public %}
             "datePublic": {{ date_public }},
             {%- endif %}
-            {%- if reporters %}
+            {%- if credits %}
             "credits": [
-                {%- for reporter in reporters %}
-                {"lang": "en", "type": "finder", "value": {{ reporter }}}{% if not loop.last %},{% endif %}
+                {%- for credit in credits %}
+                {"lang": "en", "type": {{ credit.type }}, "value": {{ credit.value }}}{% if not loop.last %},{% endif %}
                 {%- endfor %}
             ],
             {%- endif %}

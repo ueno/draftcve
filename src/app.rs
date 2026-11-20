@@ -132,9 +132,9 @@ struct GenerateArgs {
     /// The finder's original report, e.g. an email or issue text, given to the model as context
     #[arg(long, value_name = "FILE")]
     report: Option<PathBuf>,
-    /// Name to credit as a finder, in addition to `Reported-by:` trailers; may be repeated
-    #[arg(long = "finder", value_name = "NAME")]
-    finders: Vec<String>,
+    /// Name to credit, e.g. `finder=NAME`, in addition to those in `Reported-by:`, `Signed-off-by:`, `Reviewed-by:` and `Tested-by:` trailers; TYPE is a CVE credit type, with `-` for spaces; may be repeated
+    #[arg(long = "credit", value_name = "TYPE=NAME")]
+    credits: Vec<String>,
     /// Public disclosure date as YYYY-MM-DD (default: the fixed release's date)
     #[arg(long)]
     date_public: Option<String>,
@@ -240,8 +240,10 @@ struct TemplateContext<'a> {
     commits: Vec<CommitContext>,
     /// Trailers of all fixing commits, merged.
     trailers: BTreeMap<String, Vec<String>>,
-    /// Names from `Reported-by:` trailers and `--finder`.
+    /// Names from `Reported-by:` trailers and `--credit finder=NAME`.
     reporters: Vec<String>,
+    /// Names from `CREDIT_TRAILERS`, followed by `--credit` names.
+    credits: Vec<Credit>,
     /// Issue numbers from `Fixes:`, `Closes:` and `Resolves:` trailers.
     issues: Vec<String>,
     /// Other `Fixes:` values, such as project advisory identifiers.
@@ -270,6 +272,57 @@ fn public_url(remote: &str) -> Option<String> {
         return Some(url.to_string());
     }
     None
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct Credit {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    value: String,
+}
+
+/// The credit types of the CVE record format.
+const CREDIT_TYPES: [&str; 10] = [
+    "finder",
+    "reporter",
+    "analyst",
+    "coordinator",
+    "remediation developer",
+    "remediation reviewer",
+    "remediation verifier",
+    "tool",
+    "sponsor",
+    "other",
+];
+
+/// Trailers of fixing commits that credit a name, and the credit type.
+const CREDIT_TRAILERS: [(&str, &str); 4] = [
+    ("Reported-by", "finder"),
+    ("Signed-off-by", "remediation developer"),
+    ("Reviewed-by", "remediation reviewer"),
+    ("Tested-by", "remediation verifier"),
+];
+
+/// Parse `--credit TYPE=NAME`, where TYPE may use `-` or `_` for spaces.
+fn parse_credit(credit: &str) -> Result<Credit> {
+    let (kind, name) = credit
+        .split_once('=')
+        .ok_or_else(|| anyhow!("--credit `{credit}` is not of the form TYPE=NAME"))?;
+    let normalized = kind.trim().to_ascii_lowercase().replace(['-', '_'], " ");
+    let kind = CREDIT_TYPES
+        .into_iter()
+        .find(|known| *known == normalized)
+        .ok_or_else(|| {
+            anyhow!(
+                "--credit type `{}` is not one of {}",
+                kind.trim(),
+                CREDIT_TYPES.map(|known| known.replace(' ', "-")).join(", ")
+            )
+        })?;
+    Ok(Credit {
+        kind,
+        value: name.trim().to_string(),
+    })
 }
 
 /// Strip the address from `Name <name@example.com>`.
@@ -702,15 +755,28 @@ fn generate(
             .flat_map(|key| trailers.get(*key).cloned().unwrap_or_default())
             .collect()
     };
-    let mut reporters: Vec<String> = vec![];
-    let names = values(&["Reported-by"])
-        .into_iter()
-        .map(|value| person(&value));
-    for name in names.chain(args.finders.iter().map(|name| name.trim().to_string())) {
-        if !name.is_empty() && !reporters.contains(&name) {
-            reporters.push(name);
+    let mut credits: Vec<Credit> = vec![];
+    let trailed = CREDIT_TRAILERS.into_iter().flat_map(|(key, kind)| {
+        values(&[key]).into_iter().map(move |value| Credit {
+            kind,
+            value: person(&value),
+        })
+    });
+    let given = args
+        .credits
+        .iter()
+        .map(|credit| parse_credit(credit))
+        .collect::<Result<Vec<_>>>()?;
+    for credit in trailed.chain(given) {
+        if !credit.value.is_empty() && !credits.contains(&credit) {
+            credits.push(credit);
         }
     }
+    let reporters: Vec<String> = credits
+        .iter()
+        .filter(|credit| credit.kind == "finder")
+        .map(|credit| credit.value.clone())
+        .collect();
     let mut issues = vec![];
     let mut advisories = vec![];
     for value in values(&["Fixes", "Closes", "Resolves"]) {
@@ -1001,6 +1067,7 @@ fn generate(
         commits,
         trailers: trailers.clone(),
         reporters,
+        credits,
         issues,
         advisories,
         date_public,
@@ -1191,6 +1258,16 @@ fn midnight(date: &str) -> Result<String> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn credit_types_accept_dashes_for_spaces() {
+        let credit = parse_credit("Remediation-Developer = Jane Doe").unwrap();
+        assert_eq!(credit.kind, "remediation developer");
+        assert_eq!(credit.value, "Jane Doe");
+        assert_eq!(parse_credit("tool=fuzzer").unwrap().kind, "tool");
+        assert!(parse_credit("hacker=Jane Doe").is_err());
+        assert!(parse_credit("Jane Doe").is_err());
+    }
 
     /// Help text is documentation, and documentation that only exists in one
     /// place goes stale silently. This at least enforces that it exists.

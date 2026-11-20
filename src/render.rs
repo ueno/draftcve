@@ -131,6 +131,33 @@ mod tests {
     }
 
     #[test]
+    fn credits_keep_their_type() {
+        let context = json!({
+            "cve_id": "CVE-2025-0001",
+            "project": "demo",
+            "generator": "cve-report",
+            "repo_url": null,
+            "issue_url": null,
+            "commits": [],
+            "issues": [],
+            "advisories": [],
+            "vars": {},
+            "credits": [
+                {"type": "finder", "value": "Jane Doe"},
+                {"type": "remediation developer", "value": "John Doe"},
+            ],
+        });
+        let record = render(DEFAULT_TEMPLATE, "default.json.j2", &context).unwrap();
+        assert_eq!(
+            record["containers"]["cna"]["credits"],
+            json!([
+                {"lang": "en", "type": "finder", "value": "Jane Doe"},
+                {"lang": "en", "type": "remediation developer", "value": "John Doe"},
+            ])
+        );
+    }
+
+    #[test]
     fn issues_are_referenced_without_a_repository() {
         let references = |issue_url: Value, vars: Value| {
             let context = json!({
