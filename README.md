@@ -1,7 +1,8 @@
 # cve-report
 
 cve-report is an LLM-backed tool that writes a [CVE record][cve-schema]
-in the JSON 5 format, from the git commits that fix a vulnerability.
+in the JSON 5 format, from the git commits that fix a vulnerability
+and optionally the original report.
 
 Vulnerability details are often still under embargo when the record is
 written, so cve-report is designed to run against a **local** model,
@@ -55,16 +56,16 @@ are recorded as the model gives them, with a warning.
 ### Generating a record
 
 ```console
-$ cve-report generate CVE-2026-42010 cb1833afd9 \
-    -C path/to/gnutls \
-    --policy path/to/gnutls/SECURITY.md \
-    --tag-format '^(\d+)\.(\d+)\.(\d+)$' \
-    --repo-url https://gitlab.com/gnutls/gnutls
+$ cve-report generate --report report.txt CVE-2026-42010 cb1833afd9
 ```
 
 The main arguments are:
 
 - the CVE identifier and the commits fixing the vulnerability
+- `--report FILE`: the finder's original report, such as the email or
+  issue that disclosed the vulnerability. The model reads it alongside
+  the fix in every step, but is told to trust the fix where the two
+  disagree. It is not added to the record
 - `-C`: the git repository (default: the current directory)
 - `--policy`: the project's security issue handling policy, used to
   rate the severity. `--severity-levels` lists the ratings it defines
@@ -77,10 +78,6 @@ The main arguments are:
   be repeated for a project that changed its tagging style, e.g.
   `--tag-format '^(\d+)\.(\d+)\.(\d+)$' --tag-format '^gnutls_(\d+)_(\d+)_(\d+)$'`;
   a tag takes its version from the first format that matches
-- `--report FILE`: the finder's original report, such as the email or
-  issue that disclosed the vulnerability. The model reads it alongside
-  the fix in every step, but is told to trust the fix where the two
-  disagree. It is not added to the record
 - `--credit TYPE=NAME`: a name to credit, in addition to those in
   trailers of the fixing commits (see [How it works](#how-it-works)).
   TYPE is a role of the CVE record format: `finder`, `reporter`,
