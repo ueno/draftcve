@@ -116,10 +116,9 @@ policy = "SECURITY.md"
 # hints, template, schema, cwe_catalog are also paths
 tag_formats = ['^(\d+)\.(\d+)\.(\d+)$', '^gnutls_(\d+)_(\d+)_(\d+)$']
 version_type = "semver"
-# issue_url = "https://bugzilla.redhat.com/show_bug.cgi?id="
-# issue_formats = ['^rhbz#(\d+)$']
+issue_url = "https://gitlab.com/gnutls/gnutls/-/work_items/"
+issue_formats = ['^#(\d+)$']
 severity_levels = ["Critical", "High", "Medium", "Low"]
-parallel = 1
 
 [vars]
 assigner_org_id = "..."
