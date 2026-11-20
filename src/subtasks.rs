@@ -7,6 +7,7 @@
 //! conversation as it finishes. Once every outcome is in, nothing applies and
 //! the parent yields.
 
+use crate::agent::Interrupted;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::{FutureExt, stream};
@@ -130,9 +131,17 @@ impl SubagentRunner<Parent> for Runner {
 /// subtask starts, and the first error is returned once the running ones
 /// finish.
 ///
+/// Cancelling `cancel` stops at once: each running subtask is handed the same
+/// token, and is left to wind down on its own. The result is then
+/// [`Interrupted`].
+///
 /// Must be called within a multi-threaded runtime with at least `parallel`
 /// workers, since the subtasks block on git.
-pub async fn run(parallel: NonZeroUsize, subtasks: Vec<(String, Start)>) -> Result<()> {
+pub async fn run(
+    parallel: NonZeroUsize,
+    cancel: CancellationToken,
+    subtasks: Vec<(String, Start)>,
+) -> Result<()> {
     let names: Vec<_> = subtasks.iter().map(|(name, _)| name.clone()).collect();
     let mut opening = Message::user().with_text("Run the subtasks.");
     opening
@@ -151,10 +160,9 @@ pub async fn run(parallel: NonZeroUsize, subtasks: Vec<(String, Start)>) -> Resu
         SubagentOperation::new(Arc::new(runner)).with_max_concurrency(parallel),
     ))];
 
-    let cancel = CancellationToken::new();
     let machine = StateMachine::new(steps, cancel.clone());
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let emitter = Emitter::new(tx, cancel);
+    let emitter = Emitter::new(tx, cancel.clone());
     let result = machine.run(&runtime, "cve-report", &emitter).await;
     rx.close();
     while rx.recv().await.is_some() {}
@@ -162,6 +170,7 @@ pub async fn run(parallel: NonZeroUsize, subtasks: Vec<(String, Start)>) -> Resu
 
     match error.lock().unwrap().take() {
         Some(error) => Err(error),
+        None if cancel.is_cancelled() => Err(Interrupted.into()),
         None => Ok(()),
     }
 }
@@ -195,7 +204,9 @@ mod tests {
                 })
             })
             .collect();
-        run(parallel(1), subtasks).await.unwrap();
+        run(parallel(1), CancellationToken::new(), subtasks)
+            .await
+            .unwrap();
         assert_eq!(*order.lock().unwrap(), [0, 1, 2, 3]);
     }
 
@@ -216,7 +227,9 @@ mod tests {
                 })
             })
             .collect();
-        run(parallel(3), subtasks).await.unwrap();
+        run(parallel(3), CancellationToken::new(), subtasks)
+            .await
+            .unwrap();
         assert_eq!(peak.load(Ordering::SeqCst), 3);
     }
 
@@ -231,8 +244,37 @@ mod tests {
                 Ok(())
             }),
         ];
-        let error = run(parallel(1), subtasks).await.unwrap_err();
+        let error = run(parallel(1), CancellationToken::new(), subtasks)
+            .await
+            .unwrap_err();
         assert_eq!(error.to_string(), "model request failed");
+        assert_eq!(ran.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    async fn cancelling_interrupts_and_starts_no_more_subtasks() {
+        let cancel = CancellationToken::new();
+        let ran = Arc::new(AtomicUsize::new(0));
+        let counted = ran.clone();
+        let stop = cancel.clone();
+        let subtasks: Vec<(String, Start)> = vec![
+            (
+                "waits".to_string(),
+                Box::new(move |cancel: CancellationToken| {
+                    Box::pin(async move {
+                        stop.cancel();
+                        cancel.cancelled().await;
+                        Err(Interrupted.into())
+                    })
+                }),
+            ),
+            subtask("skipped", async move {
+                counted.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }),
+        ];
+        let error = run(parallel(1), cancel, subtasks).await.unwrap_err();
+        assert!(error.is::<Interrupted>(), "{error:#}");
         assert_eq!(ran.load(Ordering::SeqCst), 0);
     }
 }

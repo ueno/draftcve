@@ -542,6 +542,19 @@ impl Runner {
     }
 }
 
+/// Stop the runs on the first Ctrl-C, and quit on the second, in case a run
+/// is stuck in git where cancellation cannot reach it.
+async fn interrupt(cancel: CancellationToken, reporter: Arc<crate::progress::Reporter>) {
+    if tokio::signal::ctrl_c().await.is_err() {
+        return;
+    }
+    reporter.warn("interrupted; stopping (press Ctrl-C again to quit now)");
+    cancel.cancel();
+    if tokio::signal::ctrl_c().await.is_ok() {
+        std::process::exit(130);
+    }
+}
+
 fn parse_vars(vars: &[String]) -> Result<BTreeMap<String, String>> {
     vars.iter()
         .map(|var| {
@@ -771,11 +784,13 @@ fn generate(
         step: AtomicUsize::new(0),
         steps,
     });
-    // A worker per run, since runs block on git.
+    // A worker per run, since runs block on git, and one for Ctrl-C.
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(parallel.get())
+        .worker_threads(parallel.get() + 1)
         .enable_all()
         .build()?;
+    let cancel = CancellationToken::new();
+    runtime.spawn(interrupt(cancel.clone(), reporter.clone()));
 
     // Each later run builds on the findings recorded when it starts, and
     // nothing else. Run one at a time, every run sees everything before it;
@@ -915,7 +930,7 @@ fn generate(
             }),
         ));
     }
-    runtime.block_on(crate::subtasks::run(parallel, subtasks))?;
+    runtime.block_on(crate::subtasks::run(parallel, cancel.clone(), subtasks))?;
 
     let known = facts(&workspace.lock().unwrap(), &reporters, true);
     if description.is_none() {
@@ -932,7 +947,7 @@ fn generate(
             "writing the description",
             &[],
             &opening,
-            CancellationToken::new(),
+            cancel.clone(),
         ))?;
         description = outcome
             .result
@@ -953,7 +968,7 @@ fn generate(
             "writing the title",
             &[],
             &opening,
-            CancellationToken::new(),
+            cancel.clone(),
         ))?;
         title = outcome
             .result

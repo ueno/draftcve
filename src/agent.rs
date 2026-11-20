@@ -397,6 +397,19 @@ fn approve_tool_calls(message: &mut Message) {
     }
 }
 
+/// The run was cancelled, by Ctrl-C. Raised instead of returning what the
+/// model had got to, so that partial findings are not taken for an answer.
+#[derive(Debug)]
+pub struct Interrupted;
+
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("interrupted")
+    }
+}
+
+impl std::error::Error for Interrupted {}
+
 pub struct Agent {
     backend: Arc<dyn Backend>,
     role: Role,
@@ -468,6 +481,9 @@ impl Agent {
         rx.close();
         while rx.recv().await.is_some() {}
         result?;
+        if self.cancel.is_cancelled() {
+            return Err(Interrupted.into());
+        }
 
         let conversation = runtime.conversation.into_inner().unwrap();
         if trailing_error(&conversation) == Some(MessageErrorKind::ResourceExhausted) {
@@ -666,6 +682,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.result.as_deref(), Some("A flaw was found in lib."));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_run_is_interrupted() {
+        let dir = tempdir::TempDir::new("cve-report-cancelled").unwrap();
+        let (_, fix) = repository(dir.path());
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
+        let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
+        let backend = Arc::new(ScriptedBackend {
+            replies: Mutex::new(VecDeque::new()),
+            seen: Mutex::new(String::new()),
+        });
+        let agent = Agent::new(backend, DESCRIBE);
+        agent.cancel.cancel();
+        let error = agent
+            .run("test", Arc::new(Mutex::new(workspace)), "describe it")
+            .await
+            .unwrap_err();
+        assert!(error.is::<Interrupted>(), "{error:#}");
     }
 
     #[tokio::test]

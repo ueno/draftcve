@@ -15,6 +15,12 @@ mod tools;
 fn main() {
     if let Err(error) = app::run() {
         eprintln!("error: {error:#}");
-        std::process::exit(1);
+        // As a shell reports a command killed by SIGINT.
+        let code = if error.is::<agent::Interrupted>() {
+            130
+        } else {
+            1
+        };
+        std::process::exit(code);
     }
 }
