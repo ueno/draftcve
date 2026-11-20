@@ -232,12 +232,6 @@ pub struct ReadCweParams {
     pub cwe_id: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub struct FinishParams {
-    /// The summary of the task, in prose.
-    pub summary: String,
-}
-
 fn parse_args<T: serde::de::DeserializeOwned>(arguments: &Option<JsonObject>) -> Result<T> {
     let value = arguments
         .clone()
@@ -650,14 +644,6 @@ fn read_file_tool() -> Tool {
     )
 }
 
-fn finish_tool() -> Tool {
-    tool(
-        "finish",
-        "Call when you have completed the task. Summarize what you did and why.",
-        schema_for!(FinishParams),
-    )
-}
-
 /// Tools for finding the commit that introduced the flaw.
 pub fn affected_tool_provider() -> Arc<dyn ToolProvider<Session>> {
     Arc::new(Tools {
@@ -686,7 +672,6 @@ pub fn affected_tool_provider() -> Arc<dyn ToolProvider<Session>> {
                  The affected version range is computed from it.",
                 schema_for!(WriteAffectedVersionsParams),
             ),
-            finish_tool(),
         ],
     })
 }
@@ -730,7 +715,6 @@ pub fn score_tool_provider() -> Arc<dyn ToolProvider<Session>> {
                 "Record the CWE that best describes the root cause.",
                 schema_for!(WriteCweParams),
             ),
-            finish_tool(),
         ],
     })
 }
@@ -746,7 +730,6 @@ pub fn rate_tool_provider() -> Arc<dyn ToolProvider<Session>> {
                 "Record the severity rating according to the security policy.",
                 schema_for!(WriteSeverityParams),
             ),
-            finish_tool(),
         ],
     })
 }
@@ -754,7 +737,7 @@ pub fn rate_tool_provider() -> Arc<dyn ToolProvider<Session>> {
 /// Tools for writing prose.
 pub fn describe_tool_provider() -> Arc<dyn ToolProvider<Session>> {
     Arc::new(Tools {
-        tools: vec![read_commit_tool(), read_file_tool(), finish_tool()],
+        tools: vec![read_commit_tool(), read_file_tool()],
     })
 }
 
@@ -851,20 +834,6 @@ fn dispatch(session: &Session, call: &CallToolRequestParams) -> Result<CallToolR
             let params = parse_args::<WriteCweParams>(&call.arguments)?;
             let mut workspace = session.workspace.lock().unwrap();
             text_result(workspace.write_cwe(&params.cwe_id, &params.name)?)
-        }
-        "finish" => {
-            let params = parse_args::<FinishParams>(&call.arguments)?;
-            let pending = session.record.lock().unwrap().pending.clone();
-            if !pending.is_empty() {
-                let pending: Vec<_> = pending.into_iter().collect();
-                bail!(
-                    "you have not called {} yet. Call it before `finish`.",
-                    pending.join(", ")
-                );
-            }
-            session.reporter.finished(&params.summary);
-            session.record.lock().unwrap().result = Some(params.summary.clone());
-            Ok(CallToolResult::success(vec![]))
         }
         other => bail!("unknown tool `{other}`"),
     };

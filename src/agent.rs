@@ -1,29 +1,33 @@
 //! The agent loop, driven by `oi_kit_agent`'s `StateMachine`.
 //!
-//! The turn limit is goose's stock [`MaxTurnsOperation`]; the rest are ours. The
-//! machine tries each step in order per iteration; the first that applies
-//! produces effects and the loop repeats.
-//!
-//! One sharp edge: `StateMachine::step` always reaches the inference step and
-//! does not consult `Inference::applies`, so a prose reply with no tool calls
-//! would loop forever without [`EndTurnOperation`] ahead of it.
+//! The turn limit is goose's stock [`MaxTurnsOperation`] and the closing summary
+//! its [`FinalOutputOperation`]; the rest are ours. The machine tries each step
+//! in order per iteration; the first that applies produces effects and the loop
+//! repeats. A reply with no tool calls ends the run, as inference no longer
+//! applies.
 
 use crate::model::{Backend, Usage};
 use crate::progress::Reporter;
 use crate::tools::{self, Workspace};
 use anyhow::Result;
 use async_trait::async_trait;
+use oi_kit_agent::final_output::{
+    FINAL_OUTPUT_TOOL_NAME, FinalOutputOperation, FinalOutputSchemaSource, FinalOutputTool,
+};
 use oi_kit_agent::machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step};
 use oi_kit_agent::max_turns::MaxTurnsOperation;
 use oi_kit_agent::operation::{
     ConversationEffect, Emitter, Inference, InferenceInput, Operation, OperationResult, applied,
-    ends_turn, not_applicable, trailing_error, yielded,
+    ends_turn, messages_since_kickoff, not_applicable, trailing_error, yielded,
 };
 use oi_kit_agent::tool::{ToolOperation, ToolProvider};
-use oi_kit_agent::tool_call_state::EXECUTABLE_KEY;
+use oi_kit_agent::tool_call_state::{EXECUTABLE_KEY, pending_tool_requests};
 use oi_kit_agent::unhandled_tool_calls::UnhandledToolCallsOperation;
 use oi_kit_providers::conversation::Conversation;
 use oi_kit_providers::conversation::message::{Message, MessageContent, MessageErrorKind};
+use rmcp::model::{CallToolResult, ContentBlock};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -47,6 +51,9 @@ pub struct Role {
     pub warning: &'static str,
     /// What running out means for this role.
     pub exhausted: &'static str,
+    /// Whether the model closes with a summary through `final_output`. If
+    /// not, its closing prose is the result.
+    pub summarizes: bool,
 }
 
 pub const AFFECTED: Role = Role {
@@ -58,7 +65,8 @@ pub const AFFECTED: Role = Role {
     exhausted: "could not determine the affected versions",
     warning: "You are about to run out of turns. \
               Call `write_affected_versions` with your best candidate commit now, \
-              even if you are not completely sure. Then call `finish`.",
+              even if you are not completely sure. Then call `final_output`.",
+    summarizes: true,
 };
 
 pub const SCORE: Role = Role {
@@ -70,7 +78,8 @@ pub const SCORE: Role = Role {
     exhausted: "could not score the vulnerability",
     warning: "You are about to run out of turns. \
               Record your assessment now, even if you are not completely sure. \
-              Then call `finish`.",
+              Then call `final_output`.",
+    summarizes: true,
 };
 
 pub const RATE: Role = Role {
@@ -81,7 +90,8 @@ pub const RATE: Role = Role {
     warn_at: 3,
     exhausted: "could not rate the vulnerability",
     warning: "You are about to run out of turns. \
-              Call `write_severity` with your best rating now. Then call `finish`.",
+              Call `write_severity` with your best rating now. Then call `final_output`.",
+    summarizes: true,
 };
 
 pub const DESCRIBE: Role = Role {
@@ -93,6 +103,7 @@ pub const DESCRIBE: Role = Role {
     exhausted: "could not write the description",
     warning: "You are about to run out of turns. \
               Write the description now, as plain prose.",
+    summarizes: false,
 };
 
 pub const TITLE: Role = Role {
@@ -103,6 +114,7 @@ pub const TITLE: Role = Role {
     warn_at: 1,
     exhausted: "could not write the title",
     warning: "Reply with the title only.",
+    summarizes: false,
 };
 
 /// How often to remind a model that ended its turn with work outstanding.
@@ -110,7 +122,7 @@ const MAX_NUDGES: usize = 2;
 
 #[derive(Debug)]
 pub struct Outcome {
-    /// The terminal tool's result, or the closing prose. `None` when the
+    /// The `final_output` summary, or the closing prose. `None` when the
     /// model ran out of turns: the caller must not mistake an apology for
     /// an answer.
     pub result: Option<String>,
@@ -120,7 +132,6 @@ pub struct Outcome {
 
 #[derive(Default)]
 pub struct Record {
-    pub result: Option<String>,
     usage: Usage,
     turns: usize,
     /// Reminders sent about outstanding `write_*` calls.
@@ -200,14 +211,33 @@ impl EffectHandler<Session, ConversationEffect> for Runtime {
     }
 }
 
-/// The model replied with prose and no tool calls, so it has nothing further to
-/// do. Take its words as the result rather than discarding them.
-struct EndTurnOperation;
+/// The closing summary, collected by [`FinalOutputOperation`].
+#[derive(Deserialize, JsonSchema)]
+struct Summary {
+    /// The summary of the task, in prose.
+    summary: String,
+}
+
+/// Offer `final_output` to roles that record findings through tools.
+struct SummarySchema;
+
+impl FinalOutputSchemaSource<Session> for SummarySchema {
+    fn json_schema(&self, session: &Session) -> Option<serde_json::Value> {
+        session
+            .role
+            .summarizes
+            .then(|| serde_json::to_value(schemars::schema_for!(Summary)).unwrap())
+    }
+}
+
+/// Holds the model to its `write_*` calls, which [`FinalOutputOperation`]
+/// knows nothing of.
+struct PendingWritesOperation;
 
 #[async_trait]
-impl Operation<Session, ConversationEffect> for EndTurnOperation {
+impl Operation<Session, ConversationEffect> for PendingWritesOperation {
     fn name(&self) -> &'static str {
-        "end_turn"
+        "pending_writes"
     }
 
     async fn run(
@@ -216,26 +246,50 @@ impl Operation<Session, ConversationEffect> for EndTurnOperation {
         conversation: &Conversation,
         _emit: &Emitter,
     ) -> Result<OperationResult<ConversationEffect>> {
-        // The agent has called `finish` in the previous iteration.
         let mut record = session.record.lock().unwrap();
-        if record.result.is_some() {
-            return yielded();
+        if record.pending.is_empty() {
+            return not_applicable();
+        }
+        let pending: Vec<_> = record.pending.iter().copied().collect();
+        let pending = pending.join(", ");
+
+        // Refuse to close while findings are outstanding. This runs after
+        // the other tools, so a write called alongside has been counted.
+        let messages = messages_since_kickoff(conversation)?;
+        let summaries: Vec<_> = pending_tool_requests(messages)
+            .filter(|request| {
+                request
+                    .tool_call
+                    .as_ref()
+                    .is_ok_and(|call| call.name == FINAL_OUTPUT_TOOL_NAME)
+            })
+            .collect();
+        if !summaries.is_empty() {
+            let text =
+                format!("Error: you have not called {pending} yet. Call it before `final_output`.");
+            let mut response = Message::user();
+            for request in summaries {
+                response.add_tool_response_with_metadata(
+                    request.id.clone(),
+                    Ok(CallToolResult::error(vec![ContentBlock::text(&text)])),
+                    request.metadata.as_ref(),
+                );
+            }
+            return applied([ConversationEffect::AppendMessage(response)]);
         }
 
-        if !ends_turn(conversation.messages()) {
+        if !ends_turn(messages) {
             return not_applicable();
         }
 
         // The model stopped with findings outstanding. Small models often
         // describe the call they meant to make instead of making it.
-        let pending: Vec<_> = record.pending.iter().copied().collect();
-        if !pending.is_empty() && record.nudges < MAX_NUDGES {
+        if record.nudges < MAX_NUDGES {
             record.nudges += 1;
             drop(record);
             let text = format!(
-                "You have not called {} yet. Call the tool now; \
-                 describing the call in prose does not record anything.",
-                pending.join(", ")
+                "You have not called {pending} yet. Call the tool now; \
+                 describing the call in prose does not record anything."
             );
             session.reporter.warn(&text);
             return applied([ConversationEffect::AppendMessage(
@@ -243,14 +297,7 @@ impl Operation<Session, ConversationEffect> for EndTurnOperation {
             )]);
         }
 
-        // The agent hasn't called `finish`, but ended the
-        // conversation with a prose. Use it as a result.
-        let text = conversation
-            .messages()
-            .last()
-            .map(|message| message.as_concat_text())
-            .unwrap_or_default();
-        record.result = Some(text.trim().to_string());
+        // Reminders did not help; asking for a summary will not either.
         yielded()
     }
 }
@@ -288,9 +335,14 @@ impl Inference<Session, ConversationEffect> for InferenceRunner {
             session.reporter.warn(&context);
             messages.push(Message::user().agent_visible_content().with_text(context));
         }
+        // Operations' contributions, chiefly `final_output`'s instructions.
+        let system = std::iter::once(session.role.system)
+            .chain(input.prompt_parts.iter().map(|(_, part)| part.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let (mut reply, usage) = self
             .backend
-            .complete(session.role.system, &messages, &input.tools)
+            .complete(&system, &messages, &input.tools)
             .await?;
         session.reporter.model_text(&reply.as_concat_text());
         approve_tool_calls(&mut reply);
@@ -349,7 +401,7 @@ pub struct Agent {
     backend: Arc<dyn Backend>,
     role: Role,
     pub reporter: Arc<Reporter>,
-    /// `write_*` tools to offer; each must be called before `finish`.
+    /// `write_*` tools to offer; each must be called before `final_output`.
     pub writes: BTreeSet<&'static str>,
 }
 
@@ -390,11 +442,15 @@ impl Agent {
         };
 
         let steps: Vec<Step<'_, Session, ConversationEffect>> = vec![
-            Step::Operation(Arc::new(EndTurnOperation)),
             Step::Operation(Arc::new(MaxTurnsOperation::new(self.role.max_turns))),
             Step::Operation(Arc::new(
                 ToolOperation::new().with_provider((self.role.tools)()),
             )),
+            Step::Operation(Arc::new(PendingWritesOperation)),
+            Step::Operation(Arc::new(FinalOutputOperation::new(
+                Arc::new(SummarySchema),
+                true,
+            ))),
             // Answer calls to tools the role lacks, so each turn is counted.
             Step::Operation(Arc::new(UnhandledToolCallsOperation::new())),
             Step::Inference(Arc::new(InferenceRunner {
@@ -418,17 +474,33 @@ impl Agent {
                 result
             })?;
 
-        if trailing_error(&runtime.conversation.lock().unwrap())
-            == Some(MessageErrorKind::ResourceExhausted)
-        {
+        let conversation = runtime.conversation.into_inner().unwrap();
+        if trailing_error(&conversation) == Some(MessageErrorKind::ResourceExhausted) {
             self.reporter
                 .warn(&format!("gave up: {}", self.role.exhausted));
         }
 
+        let result = if self.role.summarizes {
+            FinalOutputTool::latest_turn_output(&conversation)
+                .and_then(|output| serde_json::from_str::<Summary>(&output).ok())
+                .map(|output| output.summary)
+        } else {
+            // A reply with no tool calls is the last word; anything else
+            // means the run was cut short.
+            ends_turn(conversation.messages())
+                .then(|| conversation.messages().last())
+                .flatten()
+                .map(|message| message.as_concat_text())
+        };
+        let result = result.map(|text| text.trim().to_string());
+        if let Some(summary) = result.as_deref().filter(|_| self.role.summarizes) {
+            self.reporter.finished(summary);
+        }
+
         // `record` holds clones of these, so copy the data out.
-        let (result, usage, turns) = {
+        let (usage, turns) = {
             let record = record.lock().unwrap();
-            (record.result.clone(), record.usage, record.turns)
+            (record.usage, record.turns)
         };
 
         Ok(Outcome {
@@ -543,13 +615,16 @@ mod tests {
                     serde_json::json!({"introduced_by": fix}),
                 ),
                 // Tries to stop early.
-                call("finish", serde_json::json!({"summary": "done"})),
+                call(
+                    FINAL_OUTPUT_TOOL_NAME,
+                    serde_json::json!({"summary": "done"}),
+                ),
                 call(
                     "write_affected_versions",
                     serde_json::json!({"introduced_by": introduced, "rationale": "added strlen"}),
                 ),
                 call(
-                    "finish",
+                    FINAL_OUTPUT_TOOL_NAME,
                     serde_json::json!({"summary": "introduced in v1.1"}),
                 ),
             ])),
@@ -567,7 +642,7 @@ mod tests {
             "{seen}"
         );
         assert!(seen.contains("is the fix itself"), "{seen}");
-        assert!(seen.contains("before `finish`"), "{seen}");
+        assert!(seen.contains("before `final_output`"), "{seen}");
 
         let workspace = workspace.lock().unwrap();
         let affected = workspace.affected.as_ref().unwrap();

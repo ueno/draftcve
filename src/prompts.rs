@@ -19,7 +19,7 @@ HOW TO WORK:
    - `read_commit` shows what a commit did.
 4. Also consider commits that made the code vulnerable WITHOUT touching it, e.g. a commit that added a feature which broke an assumption the old code relied on. The fix's commit message often hints at this.
 5. Call `write_affected_versions` with the hash of the introducing commit. The tool tells you the affected version range.
-6. Call `finish` with a one-sentence summary.
+6. Call `final_output` with a one-sentence summary.
 
 RULES:
 - Never call the same tool with the same arguments twice.
@@ -44,7 +44,7 @@ CWE (`write_cwe`): the most specific CWE for the root cause. When `search_cwe` i
 
 RULES:
 - If unsure, record your best guess. Do not skip a tool.
-- After every listed tool has succeeded, call `finish` with a one-sentence summary."#;
+- After every listed tool has succeeded, call `final_output` with a one-sentence summary."#;
 
 /// Instructions for rating the vulnerability under the project's policy.
 pub const RATE: &str = r#"You are a security engineer. You rate the severity of a vulnerability under the project's security policy, given the commits that fix it.
@@ -55,7 +55,7 @@ Choose the level whose definition in the security policy fits best. The policy i
 
 RULES:
 - If unsure, record your best guess. Do not skip the tool.
-- After `write_severity` has succeeded, call `finish` with a one-sentence summary."#;
+- After `write_severity` has succeeded, call `final_output` with a one-sentence summary."#;
 
 /// Instructions for writing the description.
 pub const DESCRIBE: &str = r#"You are a security engineer. You write the description of a vulnerability for a public CVE record.
