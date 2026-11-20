@@ -633,6 +633,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "futures",
  "jiff",
  "jsonschema 0.33.0",
  "minijinja",

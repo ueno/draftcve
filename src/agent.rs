@@ -403,6 +403,8 @@ pub struct Agent {
     pub reporter: Arc<Reporter>,
     /// `write_*` tools to offer; each must be called before `final_output`.
     pub writes: BTreeSet<&'static str>,
+    /// Stops the run between steps.
+    pub cancel: CancellationToken,
 }
 
 impl Agent {
@@ -412,6 +414,7 @@ impl Agent {
             role,
             reporter: Arc::new(Reporter::silent()),
             writes: BTreeSet::new(),
+            cancel: CancellationToken::new(),
         }
     }
 
@@ -419,7 +422,7 @@ impl Agent {
     ///
     /// Takes the workspace by value and hands it back, so a caller can inspect
     /// what happened without sharing mutable state with the loop.
-    pub fn run(
+    pub async fn run(
         &self,
         session_id: &str,
         workspace: Arc<Mutex<Workspace>>,
@@ -458,21 +461,13 @@ impl Agent {
             })),
         ];
 
-        let cancel = CancellationToken::new();
-        let machine = StateMachine::new(steps, cancel.clone());
+        let machine = StateMachine::new(steps, self.cancel.clone());
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let emitter = Emitter::new(tx, cancel);
-
-        // The machine is async; the CLI is not.
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?
-            .block_on(async {
-                let result = machine.run(&runtime, session_id, &emitter).await;
-                rx.close();
-                while rx.recv().await.is_some() {}
-                result
-            })?;
+        let emitter = Emitter::new(tx, self.cancel.clone());
+        let result = machine.run(&runtime, session_id, &emitter).await;
+        rx.close();
+        while rx.recv().await.is_some() {}
+        result?;
 
         let conversation = runtime.conversation.into_inner().unwrap();
         if trailing_error(&conversation) == Some(MessageErrorKind::ResourceExhausted) {
@@ -596,8 +591,8 @@ mod tests {
         (introduced, fix)
     }
 
-    #[test]
-    fn a_misbehaving_model_is_steered_to_an_answer() {
+    #[tokio::test]
+    async fn a_misbehaving_model_is_steered_to_an_answer() {
         let dir = tempdir::TempDir::new("cve-report-agent").unwrap();
         let (introduced, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
@@ -632,7 +627,10 @@ mod tests {
         });
         let mut agent = Agent::new(backend.clone(), AFFECTED);
         agent.writes = ["write_affected_versions"].into();
-        let outcome = agent.run("test", workspace.clone(), "find it").unwrap();
+        let outcome = agent
+            .run("test", workspace.clone(), "find it")
+            .await
+            .unwrap();
 
         assert_eq!(outcome.result.as_deref(), Some("introduced in v1.1"));
         assert_eq!(outcome.turns, 5);
@@ -650,8 +648,8 @@ mod tests {
         assert_eq!(affected.fixed.as_deref(), Some("1.3"));
     }
 
-    #[test]
-    fn prose_is_the_result_of_a_prose_role() {
+    #[tokio::test]
+    async fn prose_is_the_result_of_a_prose_role() {
         let dir = tempdir::TempDir::new("cve-report-prose").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
@@ -665,12 +663,13 @@ mod tests {
         let agent = Agent::new(backend, DESCRIBE);
         let outcome = agent
             .run("test", Arc::new(Mutex::new(workspace)), "describe it")
+            .await
             .unwrap();
         assert_eq!(outcome.result.as_deref(), Some("A flaw was found in lib."));
     }
 
-    #[test]
-    fn running_out_of_turns_yields_no_result() {
+    #[tokio::test]
+    async fn running_out_of_turns_yields_no_result() {
         let dir = tempdir::TempDir::new("cve-report-exhausted").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
@@ -685,6 +684,7 @@ mod tests {
         let agent = Agent::new(backend, TITLE);
         let outcome = agent
             .run("test", Arc::new(Mutex::new(workspace)), "title")
+            .await
             .unwrap();
         assert_eq!(outcome.result, None);
     }

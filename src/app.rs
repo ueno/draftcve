@@ -8,12 +8,13 @@ use clap::{Parser, Subcommand};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{env, fs};
+use tokio_util::sync::CancellationToken;
 
 /// Lines of each fixing commit included in an opening message.
 const FIX_LINES: usize = 300;
@@ -482,10 +483,10 @@ fn facts(workspace: &Workspace, reporters: &[String], cvss: bool) -> String {
     lines.join("\n")
 }
 
-struct Runner<'a> {
-    home: &'a Path,
+struct Runner {
+    home: PathBuf,
     verbose: bool,
-    cve: &'a str,
+    cve: String,
     workspace: Arc<Mutex<Workspace>>,
     /// Label each line with the role, since runs may print at once.
     labelled: bool,
@@ -493,21 +494,23 @@ struct Runner<'a> {
     steps: usize,
 }
 
-impl Runner<'_> {
+impl Runner {
     /// Run one role. `writes` lists the write tools the model must call.
-    fn run(
+    async fn run(
         &self,
         task: Task,
         role: Role,
         what: &str,
         writes: &[&'static str],
         opening: &str,
+        cancel: CancellationToken,
     ) -> Result<Outcome> {
         let step = self.step.fetch_add(1, Ordering::Relaxed) + 1;
-        let settings = crate::model::ModelSettings::load(self.home, task)?;
-        let backend = crate::model::build(&settings, self.home)?;
+        let settings = crate::model::ModelSettings::load(&self.home, task)?;
+        let backend = crate::model::build(&settings, &self.home)?;
         let mut agent = Agent::new(backend, role);
         agent.writes = writes.iter().copied().collect();
+        agent.cancel = cancel;
         agent.reporter = Arc::new(if self.labelled {
             crate::progress::Reporter::labelled(role.name)
         } else {
@@ -515,15 +518,17 @@ impl Runner<'_> {
         });
         agent
             .reporter
-            .started(task.name(), step, self.steps, self.cve, what);
+            .started(task.name(), step, self.steps, &self.cve, what);
         if self.verbose {
             eprintln!("{opening}");
         }
-        let outcome = agent.run(
-            &format!("cve-report-{}-{}", task.name(), self.cve),
-            self.workspace.clone(),
-            opening,
-        )?;
+        let outcome = agent
+            .run(
+                &format!("cve-report-{}-{}", task.name(), self.cve),
+                self.workspace.clone(),
+                opening,
+            )
+            .await?;
         if self.verbose {
             eprintln!(
                 "{} turn{}, {} in / {} out tokens",
@@ -535,41 +540,6 @@ impl Runner<'_> {
         }
         Ok(outcome)
     }
-}
-
-type Job<'a> = Box<dyn FnOnce() -> Result<()> + Send + 'a>;
-
-/// Run jobs in order, up to `parallel` at a time. After a failure no new job
-/// starts, and the first error is returned once the running ones finish.
-fn run_jobs(parallel: NonZeroUsize, jobs: Vec<Job<'_>>) -> Result<()> {
-    let workers = parallel.get().min(jobs.len());
-    let queue = Mutex::new(VecDeque::from(jobs));
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                scope.spawn(|| -> Result<()> {
-                    loop {
-                        let Some(job) = queue.lock().unwrap().pop_front() else {
-                            return Ok(());
-                        };
-                        if let Err(error) = job() {
-                            queue.lock().unwrap().clear();
-                            return Err(error);
-                        }
-                    }
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| {
-                handle
-                    .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect::<Result<Vec<_>>>()
-            .map(|_| ())
-    })
 }
 
 fn parse_vars(vars: &[String]) -> Result<BTreeMap<String, String>> {
@@ -678,7 +648,7 @@ fn generate(
         .filter(|level| !level.is_empty())
         .collect();
     workspace.fixed_in = fixed_in(&workspace, args.fixed_version.as_deref())?;
-    let reporter = crate::progress::Reporter::new();
+    let reporter = Arc::new(crate::progress::Reporter::new());
     match (&workspace.fixed_in.fixed, &workspace.fixed_in.last_affected) {
         (Some(fixed), _) => reporter.warn(&format!("fixed in {}", fixed.version)),
         (None, Some(last)) => reporter.warn(&format!(
@@ -792,123 +762,160 @@ fn generate(
         None
     };
     let workspace = Arc::new(Mutex::new(workspace));
-    let runner = Runner {
-        home,
+    let runner = Arc::new(Runner {
+        home: home.to_path_buf(),
         verbose,
-        cve: &cve,
+        cve: cve.clone(),
         workspace: workspace.clone(),
         labelled: parallel.get() > 1,
         step: AtomicUsize::new(0),
         steps,
-    };
+    });
+    // A worker per run, since runs block on git.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(parallel.get())
+        .enable_all()
+        .build()?;
 
     // Each later run builds on the findings recorded when it starts, and
     // nothing else. Run one at a time, every run sees everything before it;
     // run in parallel, a run sees only what had finished by then.
     // The description waits for all of them, as it is where the facts matter.
-    let mut jobs: Vec<Job> = vec![];
+    let hints_owned = hints.map(str::to_string);
+    let mut subtasks: Vec<(String, crate::subtasks::Start)> = vec![];
     if let Some(blame) = blame {
-        let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
-        let (project, fixes_text) = (&project, &fixes_text);
-        let report = report.as_deref();
-        jobs.push(Box::new(move || {
-            let opening =
-                crate::prompts::affected_opening(project, fixes_text, &blame, report, hints);
-            runner.run(
-                Task::Affected,
-                crate::agent::AFFECTED,
-                "finding the introducing commit",
-                &["write_affected_versions"],
-                &opening,
-            )?;
-            let mut workspace = workspace.lock().unwrap();
-            if workspace.affected.is_none() {
-                reporter.warn(
-                    "the model did not identify the introducing commit; \
-                     assuming every version before the fix is affected (pass --introduced to fix)",
-                );
-                let all = Release {
-                    tag: String::new(),
-                    version: "0".to_string(),
-                };
-                workspace.affected = Some(Affected::new(
-                    None,
-                    Some(all),
-                    &workspace.fixed_in,
-                    &workspace.version_type,
-                ));
-            }
-            Ok(())
-        }));
+        let (runner, workspace, reporter) = (runner.clone(), workspace.clone(), reporter.clone());
+        let (project, fixes_text) = (project.clone(), fixes_text.clone());
+        let (report, hints) = (report.clone(), hints_owned.clone());
+        subtasks.push((
+            "affected".to_string(),
+            Box::new(move |cancel| {
+                Box::pin(async move {
+                    let opening = crate::prompts::affected_opening(
+                        &project,
+                        &fixes_text,
+                        &blame,
+                        report.as_deref(),
+                        hints.as_deref(),
+                    );
+                    runner
+                        .run(
+                            Task::Affected,
+                            crate::agent::AFFECTED,
+                            "finding the introducing commit",
+                            &["write_affected_versions"],
+                            &opening,
+                            cancel,
+                        )
+                        .await?;
+                    let mut workspace = workspace.lock().unwrap();
+                    if workspace.affected.is_none() {
+                        reporter.warn(
+                            "the model did not identify the introducing commit; \
+                             assuming every version before the fix is affected (pass --introduced to fix)",
+                        );
+                        let all = Release {
+                            tag: String::new(),
+                            version: "0".to_string(),
+                        };
+                        workspace.affected = Some(Affected::new(
+                            None,
+                            Some(all),
+                            &workspace.fixed_in,
+                            &workspace.version_type,
+                        ));
+                    }
+                    Ok(())
+                })
+            }),
+        ));
     }
 
     if !score_tools.is_empty() {
-        let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
-        let (project, fixes_text, reporters) = (&project, &fixes_text, &reporters);
-        let report = report.as_deref();
-        jobs.push(Box::new(move || {
-            let opening = {
-                let workspace = workspace.lock().unwrap();
-                crate::prompts::score_opening(
-                    project,
-                    fixes_text,
-                    &facts(&workspace, reporters, true),
-                    &score_tools,
-                    report,
-                    hints,
-                )
-            };
-            runner.run(
-                Task::Assess,
-                crate::agent::SCORE,
-                "scoring the impact",
-                &score_tools,
-                &opening,
-            )?;
-            let workspace = workspace.lock().unwrap();
-            for (tool, missing) in [
-                ("CVSS score", workspace.cvss.is_none()),
-                ("CWE", workspace.cwe.is_none()),
-            ] {
-                if missing {
-                    reporter.warn(&format!("the model did not record the {tool}"));
-                }
-            }
-            Ok(())
-        }));
+        let (runner, workspace, reporter) = (runner.clone(), workspace.clone(), reporter.clone());
+        let (project, fixes_text, reporters) =
+            (project.clone(), fixes_text.clone(), reporters.clone());
+        let (report, hints) = (report.clone(), hints_owned.clone());
+        subtasks.push((
+            "score".to_string(),
+            Box::new(move |cancel| {
+                Box::pin(async move {
+                    let opening = {
+                        let workspace = workspace.lock().unwrap();
+                        crate::prompts::score_opening(
+                            &project,
+                            &fixes_text,
+                            &facts(&workspace, &reporters, true),
+                            &score_tools,
+                            report.as_deref(),
+                            hints.as_deref(),
+                        )
+                    };
+                    runner
+                        .run(
+                            Task::Assess,
+                            crate::agent::SCORE,
+                            "scoring the impact",
+                            &score_tools,
+                            &opening,
+                            cancel,
+                        )
+                        .await?;
+                    let workspace = workspace.lock().unwrap();
+                    for (tool, missing) in [
+                        ("CVSS score", workspace.cvss.is_none()),
+                        ("CWE", workspace.cwe.is_none()),
+                    ] {
+                        if missing {
+                            reporter.warn(&format!("the model did not record the {tool}"));
+                        }
+                    }
+                    Ok(())
+                })
+            }),
+        ));
     }
 
     if needs_severity {
-        let (runner, workspace, reporter) = (&runner, &workspace, &reporter);
-        let (project, fixes_text, reporters) = (&project, &fixes_text, &reporters);
-        let (policy, report) = (policy.as_deref(), report.as_deref());
-        jobs.push(Box::new(move || {
-            let opening = {
-                let workspace = workspace.lock().unwrap();
-                crate::prompts::rate_opening(
-                    project,
-                    fixes_text,
-                    &facts(&workspace, reporters, false),
-                    policy,
-                    &workspace.severity_levels,
-                    report,
-                    hints,
-                )
-            };
-            runner.run(
-                Task::Assess,
-                crate::agent::RATE,
-                "rating the severity under the policy",
-                &["write_severity"],
-                &opening,
-            )?;
-            if workspace.lock().unwrap().severity.is_none() {
-                reporter.warn("the model did not record the severity");
-            }
-            Ok(())
-        }));
+        let (runner, workspace, reporter) = (runner.clone(), workspace.clone(), reporter.clone());
+        let (project, fixes_text, reporters) =
+            (project.clone(), fixes_text.clone(), reporters.clone());
+        let (policy, report, hints) = (policy.clone(), report.clone(), hints_owned.clone());
+        subtasks.push((
+            "rate".to_string(),
+            Box::new(move |cancel| {
+                Box::pin(async move {
+                    let opening = {
+                        let workspace = workspace.lock().unwrap();
+                        crate::prompts::rate_opening(
+                            &project,
+                            &fixes_text,
+                            &facts(&workspace, &reporters, false),
+                            policy.as_deref(),
+                            &workspace.severity_levels,
+                            report.as_deref(),
+                            hints.as_deref(),
+                        )
+                    };
+                    runner
+                        .run(
+                            Task::Assess,
+                            crate::agent::RATE,
+                            "rating the severity under the policy",
+                            &["write_severity"],
+                            &opening,
+                            cancel,
+                        )
+                        .await?;
+                    if workspace.lock().unwrap().severity.is_none() {
+                        reporter.warn("the model did not record the severity");
+                    }
+                    Ok(())
+                })
+            }),
+        ));
     }
-    run_jobs(parallel, jobs)?;
+    runtime.block_on(crate::subtasks::run(parallel, subtasks))?;
 
     let known = facts(&workspace.lock().unwrap(), &reporters, true);
     if description.is_none() {
@@ -919,13 +926,14 @@ fn generate(
             report.as_deref(),
             hints,
         );
-        let outcome = runner.run(
+        let outcome = runtime.block_on(runner.run(
             Task::Describe,
             crate::agent::DESCRIBE,
             "writing the description",
             &[],
             &opening,
-        )?;
+            CancellationToken::new(),
+        ))?;
         description = outcome
             .result
             .map(|text| crate::prompts::clean_prose(&text))
@@ -939,13 +947,14 @@ fn generate(
         && let Some(description) = &description
     {
         let opening = crate::prompts::title_opening(description, &known);
-        let outcome = runner.run(
+        let outcome = runtime.block_on(runner.run(
             Task::Describe,
             crate::agent::TITLE,
             "writing the title",
             &[],
             &opening,
-        )?;
+            CancellationToken::new(),
+        ))?;
         title = outcome
             .result
             .map(|text| crate::prompts::clean_title(&text, &project))
@@ -1282,61 +1291,6 @@ mod tests {
             "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
         );
         assert!(cvss_in("no score here").is_none());
-    }
-
-    fn parallel(n: usize) -> NonZeroUsize {
-        NonZeroUsize::new(n).unwrap()
-    }
-
-    #[test]
-    fn one_job_at_a_time_runs_in_order() {
-        let order = Mutex::new(vec![]);
-        let jobs: Vec<Job> = (0..4)
-            .map(|i| {
-                let order = &order;
-                Box::new(move || {
-                    order.lock().unwrap().push(i);
-                    Ok(())
-                }) as Job
-            })
-            .collect();
-        run_jobs(parallel(1), jobs).unwrap();
-        assert_eq!(*order.lock().unwrap(), [0, 1, 2, 3]);
-    }
-
-    #[test]
-    fn jobs_overlap_up_to_the_limit() {
-        let (running, peak) = (AtomicUsize::new(0), AtomicUsize::new(0));
-        let jobs: Vec<Job> = (0..6)
-            .map(|_| {
-                let (running, peak) = (&running, &peak);
-                Box::new(move || {
-                    let now = running.fetch_add(1, Ordering::SeqCst) + 1;
-                    peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                    running.fetch_sub(1, Ordering::SeqCst);
-                    Ok(())
-                }) as Job
-            })
-            .collect();
-        run_jobs(parallel(3), jobs).unwrap();
-        assert_eq!(peak.load(Ordering::SeqCst), 3);
-    }
-
-    #[test]
-    fn a_failure_starts_no_more_jobs() {
-        let ran = AtomicUsize::new(0);
-        let ran = &ran;
-        let jobs: Vec<Job> = vec![
-            Box::new(|| bail!("model request failed")),
-            Box::new(move || {
-                ran.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }),
-        ];
-        let error = run_jobs(parallel(1), jobs).unwrap_err();
-        assert_eq!(error.to_string(), "model request failed");
-        assert_eq!(ran.load(Ordering::SeqCst), 0);
     }
 
     #[test]

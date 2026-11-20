@@ -9,6 +9,7 @@ mod project;
 mod prompts;
 mod release;
 mod render;
+mod subtasks;
 mod tools;
 
 fn main() {
