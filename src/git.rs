@@ -1,11 +1,15 @@
 //! Git operations, done by shelling out to the `git` binary.
+//!
+//! Through goose's [`git_command`], since the repository is the user's to
+//! choose and may not be trusted: it cannot run an fsmonitor hook from its
+//! own configuration, and a bare repository must be named explicitly.
 
 use anyhow::{Context, Result, bail};
+use oi_kit_agent::subprocess::git_command;
 use std::path::Path;
-use std::process::Command;
 
 pub fn capture(home: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(args)
         .current_dir(home)
         .output()
@@ -42,7 +46,7 @@ pub fn resolve(home: &Path, revision: &str) -> Result<String> {
 
 /// Whether `ancestor` is reachable from `descendant`.
 pub fn is_ancestor(home: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
-    let status = Command::new("git")
+    let status = git_command()
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
         .current_dir(home)
         .status()
@@ -232,4 +236,37 @@ pub fn remote_url(home: &Path, remote: &str) -> Option<String> {
     capture(home, &["remote", "get-url", remote])
         .ok()
         .map(|url| url.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A repository's own configuration must not run code of its choosing.
+    #[test]
+    fn an_fsmonitor_hook_is_not_run() {
+        let dir = tempdir::TempDir::new("cve-report-fsmonitor").unwrap();
+        let (repo, marker) = (dir.path().join("repo"), dir.path().join("ran"));
+        std::fs::create_dir(&repo).unwrap();
+        capture(&repo, &["init", "-q"]).unwrap();
+        std::fs::write(repo.join("f"), "a\n").unwrap();
+        capture(&repo, &["add", "f"]).unwrap();
+        let hook = format!("touch {}", marker.display());
+        std::process::Command::new("git")
+            .args(["config", "core.fsmonitor", &hook])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+
+        capture(&repo, &["status", "--porcelain"]).unwrap();
+        assert!(!marker.exists(), "the fsmonitor hook ran");
+
+        // Without the guard, git does run it.
+        std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(marker.exists(), "the test's hook never runs");
+    }
 }
