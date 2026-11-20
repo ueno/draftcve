@@ -17,6 +17,10 @@ model what was wrong, so the model can correct itself. The app then
 renders the final record from these findings with a [Jinja][minijinja]
 template.
 
+**Note: The output of this tool may be inaccurate. Review it and
+correct any issues before publishing the record, using tools like
+[Vulnogram][vulnogram]**
+
 ## Usage
 
 ### Initialization
@@ -236,4 +240,5 @@ into the binary, include `LICENSE-FIRST` with binary distributions.
 [declarative-providers]: https://github.com/aaif-goose/goose/tree/main/crates/oi-kit-providers#declarative-providers
 [package-rebase-planner]: https://github.com/ueno/package-rebase-planner
 [ramalama]: https://ramalama.ai
-[oi-kit]: https://goose-docs.ai/docs/gdk/
+[oi-kit]: https://goose-docs.ai/docs/oi-kit/
+[vulnogram]: https://vulnogram.org/#editor
