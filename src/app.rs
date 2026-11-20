@@ -32,7 +32,7 @@ struct Cli {
     #[command(subcommand)]
     command: CommandName,
 
-    /// Hints file, appended to every opening message
+    /// Hints file, appended to every opening message (default: `hints` in the project configuration)
     #[arg(long, global = true)]
     hints: Option<PathBuf>,
 
@@ -55,6 +55,10 @@ enum CommandName {
     /// The model is asked only for prose and for tool calls; the record is
     /// assembled by rendering a template with the findings.
     ///
+    /// Project-wide options can be kept in `.cve-report.toml` at the top of
+    /// the repository, or in the file given with `--config`; options on the
+    /// command line take precedence.
+    ///
     ///   cve-report generate CVE-2026-42010 cb1833afd9 --policy SECURITY.md
     #[command(visible_alias = "g")]
     Generate(Box<GenerateArgs>),
@@ -70,18 +74,21 @@ struct GenerateArgs {
     /// Git repository
     #[arg(short = 'C', long, default_value = ".")]
     repo: PathBuf,
+    /// Project configuration file (default: <repo>/.cve-report.toml, if any)
+    #[arg(long, value_name = "FILE")]
+    config: Option<PathBuf>,
     /// Security issue handling policy, e.g. SECURITY.md
     #[arg(long)]
     policy: Option<PathBuf>,
     /// Record template in Jinja format (default: built-in)
     #[arg(short, long)]
     template: Option<PathBuf>,
-    /// Regex matching release tags; capture groups are joined with `.` to form the version; may be repeated, the first match wins
-    #[arg(long = "tag-format", value_name = "REGEX", default_value = crate::release::DEFAULT_TAG_FORMAT)]
+    /// Regex matching release tags; capture groups are joined with `.` to form the version; may be repeated, the first match wins (default: `^v?(\d+(?:\.\d+)+)$`)
+    #[arg(long = "tag-format", value_name = "REGEX")]
     tag_formats: Vec<String>,
-    /// Version type of affected ranges, e.g. semver, git, custom
-    #[arg(long, default_value = "semver")]
-    version_type: String,
+    /// Version type of affected ranges, e.g. semver, git, custom (default: semver)
+    #[arg(long)]
+    version_type: Option<String>,
     /// Project name (default: the repository directory name)
     #[arg(long)]
     project: Option<String>,
@@ -91,15 +98,11 @@ struct GenerateArgs {
     /// URL prefix of issues, to which the issue number is appended (default: <repo-url>/issues/)
     #[arg(long, value_name = "URL")]
     issue_url: Option<String>,
-    /// Regex matching issue references in `Fixes:`, `Closes:` and `Resolves:` trailers; the first capture group is the issue number; may be repeated, the first match wins
-    #[arg(long = "issue-format", value_name = "REGEX", default_values = DEFAULT_ISSUE_FORMATS)]
+    /// Regex matching issue references in `Fixes:`, `Closes:` and `Resolves:` trailers; the first capture group is the issue number; may be repeated, the first match wins (default: `#123` and GitHub or GitLab issue URLs)
+    #[arg(long = "issue-format", value_name = "REGEX")]
     issue_formats: Vec<String>,
-    /// Comma-separated severity ratings defined by the policy
-    #[arg(
-        long,
-        value_delimiter = ',',
-        default_value = "Critical,High,Medium,Low"
-    )]
+    /// Comma-separated severity ratings defined by the policy (default: Critical,High,Medium,Low)
+    #[arg(long, value_delimiter = ',')]
     severity_levels: Vec<String>,
     /// Commit or version that introduced the vulnerability (skips the model)
     #[arg(long)]
@@ -140,9 +143,9 @@ struct GenerateArgs {
     /// JSON schema to validate the record against, e.g. CVE_Record_Format_bundled.json
     #[arg(long)]
     schema: Option<PathBuf>,
-    /// Agent runs in flight at once; runs started together do not see each other's findings
-    #[arg(long, value_name = "N", default_value = "1")]
-    parallel: NonZeroUsize,
+    /// Agent runs in flight at once; runs started together do not see each other's findings (default: 1)
+    #[arg(long, value_name = "N")]
+    parallel: Option<NonZeroUsize>,
     /// Print the template context as JSON instead of rendering
     #[arg(long)]
     dump_context: bool,
@@ -158,13 +161,7 @@ pub fn run() -> Result<()> {
         .map(|home| home.join(".config").join("cve-report"))?;
     match cli.command {
         CommandName::Init => init(&home),
-        CommandName::Generate(args) => {
-            let hints = match &cli.hints {
-                Some(hints) => Some(fs::read_to_string(hints)?),
-                None => None,
-            };
-            generate(&home, hints.as_deref(), cli.verbose, &args)
-        }
+        CommandName::Generate(args) => generate(&home, cli.hints, cli.verbose, *args),
     }
 }
 
@@ -284,6 +281,67 @@ fn person(value: &str) -> String {
 
 /// Issue references as `#123`, or as GitHub or GitLab issue URLs.
 const DEFAULT_ISSUE_FORMATS: [&str; 2] = [r"^#(\d+)$", r"/(?:issues|work_items)/(\d+)$"];
+
+const DEFAULT_SEVERITY_LEVELS: [&str; 4] = ["Critical", "High", "Medium", "Low"];
+
+/// Fill in options not given on the command line from the project
+/// configuration, then from the built-in defaults.
+fn apply_config(
+    args: &mut GenerateArgs,
+    hints: &mut Option<PathBuf>,
+    config: crate::project::ProjectConfig,
+) {
+    fn fill<T>(option: &mut Option<T>, value: Option<T>) {
+        if option.is_none() {
+            *option = value;
+        }
+    }
+    fn fill_all<T>(values: &mut Vec<T>, config: Vec<T>) {
+        if values.is_empty() {
+            *values = config;
+        }
+    }
+    fill(&mut args.project, config.project);
+    fill(&mut args.repo_url, config.repo_url);
+    fill(&mut args.policy, config.policy);
+    fill(hints, config.hints);
+    fill(&mut args.template, config.template);
+    fill(&mut args.schema, config.schema);
+    fill(&mut args.cwe_catalog, config.cwe_catalog);
+    fill_all(&mut args.tag_formats, config.tag_formats);
+    fill(&mut args.version_type, config.version_type);
+    fill(&mut args.issue_url, config.issue_url);
+    fill_all(&mut args.issue_formats, config.issue_formats);
+    fill_all(&mut args.severity_levels, config.severity_levels);
+    fill(&mut args.parallel, config.parallel);
+    // `--var` overrides a variable of the same name; the rest are kept.
+    let given: BTreeSet<_> = args
+        .vars
+        .iter()
+        .filter_map(|var| var.split_once('=').map(|(key, _)| key.trim().to_string()))
+        .collect();
+    for (key, value) in config.vars {
+        if !given.contains(&key) {
+            args.vars.push(format!("{key}={value}"));
+        }
+    }
+}
+
+/// Built-in defaults for options neither given nor configured.
+fn apply_defaults(args: &mut GenerateArgs) {
+    let strings = |values: &[&str]| values.iter().map(|value| value.to_string()).collect();
+    if args.tag_formats.is_empty() {
+        args.tag_formats = strings(&[crate::release::DEFAULT_TAG_FORMAT]);
+    }
+    if args.issue_formats.is_empty() {
+        args.issue_formats = strings(&DEFAULT_ISSUE_FORMATS);
+    }
+    if args.severity_levels.is_empty() {
+        args.severity_levels = strings(&DEFAULT_SEVERITY_LEVELS);
+    }
+    args.version_type.get_or_insert_with(|| "semver".to_string());
+    args.parallel.get_or_insert(NonZeroUsize::MIN);
+}
 
 fn issue_formats(formats: &[impl AsRef<str>]) -> Result<Vec<Regex>> {
     formats
@@ -523,11 +581,29 @@ fn parse_vars(vars: &[String]) -> Result<BTreeMap<String, String>> {
         .collect()
 }
 
-fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs) -> Result<()> {
+fn generate(
+    home: &Path,
+    mut hints: Option<PathBuf>,
+    verbose: bool,
+    mut args: GenerateArgs,
+) -> Result<()> {
     let cve = args.cve.trim().to_ascii_uppercase();
     if !Regex::new(r"^CVE-\d{4}-\d{4,}$").unwrap().is_match(&cve) {
         bail!("`{}` is not a CVE identifier like CVE-2026-12345", args.cve);
     }
+    let root = args
+        .repo
+        .canonicalize()
+        .with_context(|| format!("could not resolve {}", args.repo.display()))?;
+    let config = crate::project::ProjectConfig::load(args.config.as_deref(), &root)?;
+    if let Some((path, config)) = config {
+        if verbose {
+            crate::progress::Reporter::new().warn(&format!("using {}", path.display()));
+        }
+        apply_config(&mut args, &mut hints, config);
+    }
+    apply_defaults(&mut args);
+    let parallel = args.parallel.unwrap_or(NonZeroUsize::MIN);
     let vars = parse_vars(&args.vars)?;
     // Read every input up front: a typo should not cost a model run.
     let template = match &args.template {
@@ -535,6 +611,14 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
             .with_context(|| format!("could not read {}", path.display()))?,
         None => crate::render::DEFAULT_TEMPLATE.to_string(),
     };
+    let hints = match &hints {
+        Some(path) => Some(
+            fs::read_to_string(path)
+                .with_context(|| format!("could not read {}", path.display()))?,
+        ),
+        None => None,
+    };
+    let hints = hints.as_deref();
     let template_name = args
         .template
         .as_ref()
@@ -556,10 +640,6 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         None => None,
     };
 
-    let root = args
-        .repo
-        .canonicalize()
-        .with_context(|| format!("could not resolve {}", args.repo.display()))?;
     let project = match &args.project {
         Some(project) => project.clone(),
         None => root
@@ -589,7 +669,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         .collect::<Result<Vec<_>>>()?;
     let releases = Releases::new(&root, &args.tag_formats)?;
     let mut workspace = Workspace::new(&root, releases, fixes.clone())?;
-    workspace.version_type = args.version_type.clone();
+    workspace.version_type = args.version_type.clone().unwrap_or_default();
     workspace.severity_levels = args
         .severity_levels
         .iter()
@@ -716,7 +796,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
         verbose,
         cve: &cve,
         workspace: workspace.clone(),
-        labelled: args.parallel.get() > 1,
+        labelled: parallel.get() > 1,
         step: AtomicUsize::new(0),
         steps,
     };
@@ -827,7 +907,7 @@ fn generate(home: &Path, hints: Option<&str>, verbose: bool, args: &GenerateArgs
             Ok(())
         }));
     }
-    run_jobs(args.parallel, jobs)?;
+    run_jobs(parallel, jobs)?;
 
     let known = facts(&workspace.lock().unwrap(), &reporters, true);
     if description.is_none() {
@@ -1112,6 +1192,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_command_line_overrides_the_project_configuration() {
+        let cli = Cli::parse_from([
+            "cve-report",
+            "generate",
+            "CVE-2026-1",
+            "HEAD",
+            "--version-type",
+            "git",
+            "--var",
+            "a=cli",
+        ]);
+        let CommandName::Generate(mut args) = cli.command else {
+            unreachable!()
+        };
+        let config: crate::project::ProjectConfig = toml::from_str(
+            "version_type = \"custom\"\n\
+             severity_levels = [\"Important\", \"Moderate\"]\n\
+             [vars]\n\
+             a = \"config\"\n\
+             b = \"config\"\n",
+        )
+        .unwrap();
+        let mut hints = None;
+        apply_config(&mut args, &mut hints, config);
+        apply_defaults(&mut args);
+        assert_eq!(args.version_type.as_deref(), Some("git"));
+        assert_eq!(args.severity_levels, ["Important", "Moderate"]);
+        assert_eq!(args.tag_formats, [crate::release::DEFAULT_TAG_FORMAT]);
+        assert_eq!(args.parallel, NonZeroUsize::new(1));
+        let vars = parse_vars(&args.vars).unwrap();
+        assert_eq!(vars["a"], "cli");
+        assert_eq!(vars["b"], "config");
     }
 
     #[test]

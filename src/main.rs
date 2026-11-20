@@ -5,6 +5,7 @@ mod cwe;
 mod git;
 mod model;
 mod progress;
+mod project;
 mod prompts;
 mod release;
 mod render;

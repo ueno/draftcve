@@ -99,6 +99,35 @@ instead, which skips that step: `--introduced`, `--cvss`, `--severity`,
 `--cwe`, `--title`, and `--description`. A `CVSS:3.1/...` vector found in
 a commit message is used as is.
 
+### Project configuration
+
+Options that stay the same for every CVE of a project can be kept in
+`.cve-report.toml` at the top of the repository, or in a file given
+with `--config` (for example, to keep it out of the project's tree).
+Each key is named after its option, with `_` in place of `-`; an
+option given on the command line takes precedence, and `--var`
+overrides a variable of the same name. Relative paths are relative to
+the file:
+
+```toml
+project = "GnuTLS"
+repo_url = "https://gitlab.com/gnutls/gnutls"
+policy = "SECURITY.md"
+# hints, template, schema, cwe_catalog are also paths
+tag_formats = ['^(\d+)\.(\d+)\.(\d+)$', '^gnutls_(\d+)_(\d+)_(\d+)$']
+version_type = "semver"
+# issue_url = "https://bugzilla.redhat.com/show_bug.cgi?id="
+# issue_formats = ['^rhbz#(\d+)$']
+severity_levels = ["Critical", "High", "Medium", "Low"]
+parallel = 1
+
+[vars]
+assigner_org_id = "..."
+```
+
+Options about a single vulnerability, such as `--introduced`,
+`--title`, or `--finder`, are only taken from the command line.
+
 ### Writing templates
 
 Templates are rendered with [minijinja][minijinja] with JSON
