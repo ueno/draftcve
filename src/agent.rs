@@ -1,7 +1,8 @@
 //! The agent loop, driven by `oi_kit_agent`'s `StateMachine`.
 //!
-//! The turn limit is goose's stock [`MaxTurnsOperation`] and the closing summary
-//! its [`FinalOutputOperation`]; the rest are ours. The machine tries each step
+//! The turn limit is goose's stock [`MaxTurnsOperation`], retrying an empty
+//! reply its [`EmptyResponseOperation`], and the closing summary its
+//! [`FinalOutputOperation`]; the rest are ours. The machine tries each step
 //! in order per iteration; the first that applies produces effects and the loop
 //! repeats. A reply with no tool calls ends the run, as inference no longer
 //! applies.
@@ -11,6 +12,7 @@ use crate::progress::Reporter;
 use crate::tools::{self, Workspace};
 use anyhow::Result;
 use async_trait::async_trait;
+use oi_kit_agent::empty_response::{EMPTY_RESPONSE_MESSAGE, EmptyResponseOperation};
 use oi_kit_agent::final_output::{
     FINAL_OUTPUT_TOOL_NAME, FinalOutputOperation, FinalOutputSchemaSource, FinalOutputTool,
 };
@@ -459,6 +461,9 @@ impl Agent {
 
         let steps: Vec<Step<'_, Session, ConversationEffect>> = vec![
             Step::Operation(Arc::new(MaxTurnsOperation::new(self.role.max_turns))),
+            // Ahead of the steps that take a reply with no tool calls as the
+            // end of the turn.
+            Step::Operation(Arc::new(EmptyResponseOperation)),
             Step::Operation(Arc::new(
                 ToolOperation::new().with_provider((self.role.tools)()),
             )),
@@ -497,11 +502,13 @@ impl Agent {
                 .map(|output| output.summary)
         } else {
             // A reply with no tool calls is the last word; anything else
-            // means the run was cut short.
+            // means the run was cut short. Goose's stand-in for a model that
+            // kept replying with nothing is not an answer either.
             ends_turn(conversation.messages())
                 .then(|| conversation.messages().last())
                 .flatten()
                 .map(|message| message.as_concat_text())
+                .filter(|text| text != EMPTY_RESPONSE_MESSAGE)
         };
         let result = result.map(|text| text.trim().to_string());
         if let Some(summary) = result.as_deref().filter(|_| self.role.summarizes) {
@@ -682,6 +689,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome.result.as_deref(), Some("A flaw was found in lib."));
+    }
+
+    #[tokio::test]
+    async fn an_empty_reply_is_retried() {
+        let dir = tempdir::TempDir::new("cve-report-empty").unwrap();
+        let (_, fix) = repository(dir.path());
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
+        let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
+        let backend = Arc::new(ScriptedBackend {
+            replies: Mutex::new(VecDeque::from([
+                Message::assistant().with_text(" "),
+                Message::assistant().with_text("A flaw was found in lib."),
+            ])),
+            seen: Mutex::new(String::new()),
+        });
+        let agent = Agent::new(backend.clone(), DESCRIBE);
+        let outcome = agent
+            .run("test", Arc::new(Mutex::new(workspace)), "describe it")
+            .await
+            .unwrap();
+        assert_eq!(outcome.result.as_deref(), Some("A flaw was found in lib."));
+        let seen = backend.seen.lock().unwrap().clone();
+        assert!(seen.contains("empty response"), "{seen}");
+    }
+
+    #[tokio::test]
+    async fn only_empty_replies_yield_no_result() {
+        let dir = tempdir::TempDir::new("cve-report-all-empty").unwrap();
+        let (_, fix) = repository(dir.path());
+        let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
+        let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
+        let replies: VecDeque<_> = (0..4).map(|_| Message::assistant().with_text("")).collect();
+        let backend = Arc::new(ScriptedBackend {
+            replies: Mutex::new(replies),
+            seen: Mutex::new(String::new()),
+        });
+        let agent = Agent::new(backend, DESCRIBE);
+        let outcome = agent
+            .run("test", Arc::new(Mutex::new(workspace)), "describe it")
+            .await
+            .unwrap();
+        assert_eq!(outcome.result, None);
     }
 
     #[tokio::test]
