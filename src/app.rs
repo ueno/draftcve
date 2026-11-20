@@ -193,7 +193,7 @@ fn init(home: &Path) -> Result<()> {
     if !provider.exists() {
         fs::write(
             provider,
-            include_str!("../.cve-report/providers/ramalama.json"),
+            include_str!("../config/cve-report/providers/ramalama.json"),
         )?;
     }
     fs::create_dir_all(home.join("cwe"))?;
