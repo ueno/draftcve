@@ -6,28 +6,29 @@
 //! The documentation of each metric and value is the help text of the FIRST
 //! calculator at <https://www.first.org/cvss/calculator/cvsscalc31_helptext.js>,
 //! which summarizes the CVSS v3.1 Specification Document. It is given to the
-//! model as the definition of each value, so edit it with care. It is under
-//! the following license, also in `LICENSE-FIRST`:
-//!
-//! Copyright (c) 2019, FIRST.ORG, INC.
-//! All rights reserved.
-//!
-//! Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
-//! following conditions are met:
-//! 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
-//! disclaimer.
-//! 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
-//! following disclaimer in the documentation and/or other materials provided with the distribution.
-//! 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote
-//! products derived from this software without specific prior written permission.
-//!
-//! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
-//! INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-//! DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-//! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-//! SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-//! WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-//! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//! model as the definition of each value, so edit it with care.
+
+// This file is under the following license, also in `LICENSE-FIRST`:
+//
+// Copyright (c) 2019, FIRST.ORG, INC.
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
+// following conditions are met:
+// 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
+// disclaimer.
+// 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+// following disclaimer in the documentation and/or other materials provided with the distribution.
+// 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote
+// products derived from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+// WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
@@ -588,7 +589,7 @@ fn pick<M: Metric>(values: &[Option<usize>; 8]) -> M {
 
 pub fn severity(score: f64) -> &'static str {
     match score {
-        s if s == 0.0 => "NONE",
+        0.0 => "NONE",
         s if s < 4.0 => "LOW",
         s if s < 7.0 => "MEDIUM",
         s if s < 9.0 => "HIGH",

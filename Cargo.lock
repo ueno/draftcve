@@ -641,7 +641,6 @@ dependencies = [
  "oi-kit-providers",
  "quick-xml",
  "regex",
- "reqwest",
  "rmcp",
  "schemars 1.2.2",
  "serde",
