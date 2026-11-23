@@ -881,7 +881,7 @@ mod tests {
     }
 
     fn workspace_with_catalog() -> (tempdir::TempDir, Workspace) {
-        let dir = tempdir::TempDir::new("cve-report-cwe").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-cwe").unwrap();
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let mut workspace = Workspace::new(dir.path(), releases, vec!["0".into()]).unwrap();
         workspace.cwe_catalog = Some(Arc::new(crate::cwe::tests::catalog()));
@@ -956,7 +956,7 @@ mod tests {
 
     /// A repository with two commits, and a secret file outside it.
     fn workspace_with_repository() -> (tempdir::TempDir, Workspace) {
-        let dir = tempdir::TempDir::new("cve-report-tools").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-tools").unwrap();
         let repo = dir.path().join("repo");
         crate::fixtures::import(crate::fixtures::SIMPLE, &repo);
         std::fs::write(dir.path().join("secret"), "SECRET-CONTENTS\n").unwrap();

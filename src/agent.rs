@@ -582,7 +582,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_misbehaving_model_is_steered_to_an_answer() {
-        let dir = tempdir::TempDir::new("cve-report-agent").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-agent").unwrap();
         let (introduced, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let mut workspace = Workspace::new(dir.path(), releases, vec![fix.clone()]).unwrap();
@@ -639,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn prose_is_the_result_of_a_prose_role() {
-        let dir = tempdir::TempDir::new("cve-report-prose").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-prose").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
@@ -659,7 +659,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_reply_is_retried() {
-        let dir = tempdir::TempDir::new("cve-report-empty").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-empty").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
@@ -682,7 +682,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_empty_replies_yield_no_result() {
-        let dir = tempdir::TempDir::new("cve-report-all-empty").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-all-empty").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
@@ -701,7 +701,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_cancelled_run_is_interrupted() {
-        let dir = tempdir::TempDir::new("cve-report-cancelled").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-cancelled").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix]).unwrap();
@@ -720,7 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn running_out_of_turns_yields_no_result() {
-        let dir = tempdir::TempDir::new("cve-report-exhausted").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-exhausted").unwrap();
         let (_, fix) = repository(dir.path());
         let releases = Releases::new(dir.path(), &[crate::release::DEFAULT_TAG_FORMAT]).unwrap();
         let workspace = Workspace::new(dir.path(), releases, vec![fix.clone()]).unwrap();

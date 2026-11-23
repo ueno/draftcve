@@ -245,7 +245,7 @@ mod tests {
     /// A repository's own configuration must not run code of its choosing.
     #[test]
     fn an_fsmonitor_hook_is_not_run() {
-        let dir = tempdir::TempDir::new("cve-report-fsmonitor").unwrap();
+        let dir = tempdir::TempDir::new("draftcve-fsmonitor").unwrap();
         let (repo, marker) = (dir.path().join("repo"), dir.path().join("ran"));
         crate::fixtures::import(crate::fixtures::SIMPLE, &repo);
         let hook = format!("touch {}", marker.display());

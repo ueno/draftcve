@@ -1,4 +1,4 @@
-//! Project-wide configuration, from `.cve-report.toml` or `--config`.
+//! Project-wide configuration, from `.draftcve.toml` or `--config`.
 //!
 //! Each key is named after the `generate` option it stands for. Options on
 //! the command line take precedence; `app::apply_config` does the merging.
@@ -9,7 +9,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// The file looked up at the top of the repository.
-pub const FILE_NAME: &str = ".cve-report.toml";
+pub const FILE_NAME: &str = ".draftcve.toml";
 
 /// Options that stay the same for every CVE of a project.
 ///
@@ -40,7 +40,7 @@ pub struct ProjectConfig {
 }
 
 impl ProjectConfig {
-    /// Load `explicit`, or else `<root>/.cve-report.toml` if there is one.
+    /// Load `explicit`, or else `<root>/.draftcve.toml` if there is one.
     ///
     /// Returns the file used along with its contents, with relative paths
     /// resolved against the file's directory.
@@ -69,7 +69,7 @@ impl ProjectConfig {
     }
 
     /// Make relative paths relative to `base` rather than to the current
-    /// directory, so that the file works wherever cve-report is run from.
+    /// directory, so that the file works wherever draftcve is run from.
     fn resolve_paths(&mut self, base: &Path) {
         for path in [
             &mut self.policy,
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn paths_are_relative_to_the_file() {
-        let dir = tempdir::TempDir::new("cve-report").unwrap();
+        let dir = tempdir::TempDir::new("draftcve").unwrap();
         std::fs::write(
             dir.path().join(FILE_NAME),
             "policy = \"SECURITY.md\"\nschema = \"/abs/schema.json\"\n",
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn an_explicit_file_is_used_instead_of_the_repository_one() {
-        let dir = tempdir::TempDir::new("cve-report").unwrap();
+        let dir = tempdir::TempDir::new("draftcve").unwrap();
         std::fs::write(dir.path().join(FILE_NAME), "project = \"repo\"\n").unwrap();
         let elsewhere = dir.path().join("elsewhere");
         std::fs::create_dir(&elsewhere).unwrap();
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_error_only_when_given() {
-        let dir = tempdir::TempDir::new("cve-report").unwrap();
+        let dir = tempdir::TempDir::new("draftcve").unwrap();
         assert!(ProjectConfig::load(None, dir.path()).unwrap().is_none());
         assert!(ProjectConfig::load(Some(&dir.path().join("nope.toml")), dir.path()).is_err());
     }

@@ -48,7 +48,7 @@ impl Backend for StubBackend {
     ) -> Result<(Message, Usage)> {
         bail!(
             "no model is configured.\n\
-             Run `cve-report init` and set a provider in ~/.config/cve-report/config.toml."
+             Run `draftcve init` and set a provider in ~/.config/draftcve/config.toml."
         )
     }
 }

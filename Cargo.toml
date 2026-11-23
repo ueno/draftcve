@@ -1,12 +1,12 @@
 [package]
-name = "cve-report"
+name = "draftcve"
 version = "0.1.0"
 edition = "2024"
 description = "A helper program to write CVE records from fixing commits"
 license = "MIT AND BSD-3-Clause"
 
 [[bin]]
-name = "cve-report"
+name = "draftcve"
 path = "src/main.rs"
 
 [dependencies]

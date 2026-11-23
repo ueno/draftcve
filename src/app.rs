@@ -24,9 +24,9 @@ const BLAME_LINES: usize = 80;
 
 #[derive(Parser)]
 #[command(
-    name = "cve-report",
+    name = "draftcve",
     about = "A helper program for writing CVE records",
-    after_help = "Run `cve-report <command> --help` for details on any command.",
+    after_help = "Run `draftcve <command> --help` for details on any command.",
     version
 )]
 struct Cli {
@@ -44,9 +44,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandName {
-    /// Create a new cve-report configuration.
+    /// Create a new draftcve configuration.
     ///
-    /// Creates configuration files under `~/.config/cve-report/`. Safe to
+    /// Creates configuration files under `~/.config/draftcve/`. Safe to
     /// re-run: existing files are left alone.
     #[command(visible_alias = "i")]
     Init,
@@ -56,11 +56,11 @@ enum CommandName {
     /// The model is asked only for prose and for tool calls; the record is
     /// assembled by rendering a template with the findings.
     ///
-    /// Project-wide options can be kept in `.cve-report.toml` at the top of
+    /// Project-wide options can be kept in `.draftcve.toml` at the top of
     /// the repository, or in the file given with `--config`; options on the
     /// command line take precedence.
     ///
-    ///   cve-report generate CVE-2026-42010 cb1833afd9 --policy SECURITY.md
+    ///   draftcve generate CVE-2026-42010 cb1833afd9 --policy SECURITY.md
     #[command(visible_alias = "g")]
     Generate(Box<GenerateArgs>),
 }
@@ -75,7 +75,7 @@ struct GenerateArgs {
     /// Git repository
     #[arg(short = 'C', long, default_value = ".")]
     repo: PathBuf,
-    /// Project configuration file (default: <repo>/.cve-report.toml, if any)
+    /// Project configuration file (default: <repo>/.draftcve.toml, if any)
     #[arg(long, value_name = "FILE")]
     config: Option<PathBuf>,
     /// Security issue handling policy, e.g. SECURITY.md
@@ -120,7 +120,7 @@ struct GenerateArgs {
     /// CWE as `CWE-<n>` or `CWE-<n>:<name>` (skips the model)
     #[arg(long)]
     cwe: Option<String>,
-    /// MITRE CWE catalog (cwec_v*.xml), or a directory holding one (default: ~/.config/cve-report/cwe)
+    /// MITRE CWE catalog (cwec_v*.xml), or a directory holding one (default: ~/.config/draftcve/cwe)
     #[arg(long)]
     cwe_catalog: Option<PathBuf>,
     /// Title (skips the model)
@@ -159,7 +159,7 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
     let home = env::home_dir()
         .ok_or_else(|| anyhow!("unable to determine home directory"))
-        .map(|home| home.join(".config").join("cve-report"))?;
+        .map(|home| home.join(".config").join("draftcve"))?;
     match cli.command {
         CommandName::Init => init(&home),
         CommandName::Generate(args) => generate(&home, cli.hints, cli.verbose, *args),
@@ -172,7 +172,7 @@ fn init(home: &Path) -> Result<()> {
         fs::write(
             home.join("config.toml"),
             concat!(
-                "# cve-report configuration\n",
+                "# draftcve configuration\n",
                 "#\n",
                 "# Reports are often about vulnerabilities still under embargo, so\n",
                 "# the model should run locally. Each task may use its own model;\n",
@@ -194,11 +194,11 @@ fn init(home: &Path) -> Result<()> {
     if !provider.exists() {
         fs::write(
             provider,
-            include_str!("../config/cve-report/providers/ramalama.json"),
+            include_str!("../config/draftcve/providers/ramalama.json"),
         )?;
     }
     fs::create_dir_all(home.join("cwe"))?;
-    println!("Initialized cve-report configuration at {}", home.display());
+    println!("Initialized draftcve configuration at {}", home.display());
     if crate::cwe::locate(&home.join("cwe")).is_err() {
         println!(
             "\nTo check CWEs against the official catalog, download it:\n\n  \
@@ -577,7 +577,7 @@ impl Runner {
         }
         let outcome = agent
             .run(
-                &format!("cve-report-{}-{}", task.name(), self.cve),
+                &format!("draftcve-{}-{}", task.name(), self.cve),
                 self.workspace.clone(),
                 opening,
             )
@@ -1074,7 +1074,7 @@ fn generate(
         now: jiff::Timestamp::now()
             .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string(),
-        generator: format!("cve-report {}", env!("CARGO_PKG_VERSION")),
+        generator: format!("draftcve {}", env!("CARGO_PKG_VERSION")),
         vars,
     };
 
@@ -1122,7 +1122,7 @@ fn load_cwe_catalog(
             let default = home.join("cwe");
             if crate::cwe::locate(&default).is_err() {
                 reporter.warn(&format!(
-                    "no CWE catalog in {}; CWEs will not be verified (see `cve-report init`)",
+                    "no CWE catalog in {}; CWEs will not be verified (see `draftcve init`)",
                     default.display()
                 ));
                 return Ok(None);
@@ -1281,7 +1281,7 @@ mod tests {
             }
             assert!(
                 subcommand.get_about().is_some(),
-                "`cve-report {name}` has no help text"
+                "`draftcve {name}` has no help text"
             );
             for argument in subcommand.get_arguments() {
                 let id = argument.get_id();
@@ -1290,7 +1290,7 @@ mod tests {
                 }
                 assert!(
                     argument.get_help().is_some(),
-                    "`cve-report {name} --{id}` has no help text"
+                    "`draftcve {name} --{id}` has no help text"
                 );
             }
         }
@@ -1299,7 +1299,7 @@ mod tests {
     #[test]
     fn the_command_line_overrides_the_project_configuration() {
         let cli = Cli::parse_from([
-            "cve-report",
+            "draftcve",
             "generate",
             "CVE-2026-1",
             "HEAD",

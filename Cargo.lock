@@ -627,7 +627,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cve-report"
+name = "draftcve"
 version = "0.1.0"
 dependencies = [
  "anyhow",

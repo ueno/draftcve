@@ -108,7 +108,7 @@ mod tests {
             let context = json!({
                 "cve_id": "CVE-2025-0001",
                 "project": "demo",
-                "generator": "cve-report",
+                "generator": "draftcve",
                 "repo_url": null,
                 "issue_url": null,
                 "commits": [],
@@ -135,7 +135,7 @@ mod tests {
         let context = json!({
             "cve_id": "CVE-2025-0001",
             "project": "demo",
-            "generator": "cve-report",
+            "generator": "draftcve",
             "repo_url": null,
             "issue_url": null,
             "commits": [],
@@ -163,7 +163,7 @@ mod tests {
             let context = json!({
                 "cve_id": "CVE-2025-0001",
                 "project": "demo",
-                "generator": "cve-report",
+                "generator": "draftcve",
                 "repo_url": null,
                 "issue_url": issue_url,
                 "commits": [],

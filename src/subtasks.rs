@@ -38,7 +38,7 @@ struct Parent {
 
 impl MachineSession for Parent {
     fn id(&self) -> &str {
-        "cve-report"
+        "draftcve"
     }
     fn conversation(&self) -> Option<&Conversation> {
         Some(&self.conversation)
@@ -163,7 +163,7 @@ pub async fn run(
     let machine = StateMachine::new(steps, cancel.clone());
     let (tx, mut rx) = mpsc::unbounded_channel();
     let emitter = Emitter::new(tx, cancel.clone());
-    let result = machine.run(&runtime, "cve-report", &emitter).await;
+    let result = machine.run(&runtime, "draftcve", &emitter).await;
     rx.close();
     while rx.recv().await.is_some() {}
     result?;

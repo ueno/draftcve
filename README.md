@@ -1,11 +1,13 @@
-# cve-report
+# draftcve
 
-cve-report is an LLM-backed tool that writes a [CVE record][cve-schema]
+![logo](assets/logo.svg)
+
+draftcve is an LLM-backed tool that writes a [CVE record][cve-schema]
 in the JSON 5 format, from the git commits that fix a vulnerability
 and optionally the original report.
 
 Vulnerability details are often still under embargo when the record is
-written, so cve-report is designed to run against a **local** model,
+written, so draftcve is designed to run against a **local** model,
 which is typically small and unreliable at producing structured output.
 The model is therefore never asked to write JSON. It is only asked to:
 
@@ -27,14 +29,14 @@ correct any issues before publishing the record, using tools like
 ### Initialization
 
 ```console
-$ cve-report init
-$ edit ~/.config/cve-report/config.toml
+$ draftcve init
+$ edit ~/.config/draftcve/config.toml
 ```
 
 The config file defines the model provider for each task. A provider
 can be the name of a [declarative provider][declarative-providers] or a
 custom provider defined in the `providers/` directory; `init` writes a
-sample for [RamaLama][ramalama]. See `config/cve-report/` for a sample
+sample for [RamaLama][ramalama]. See `config/draftcve/` for a sample
 configuration. Without a config file, the provider is `none`: nothing
 is sent anywhere until you choose a model.
 
@@ -46,17 +48,17 @@ authoritative definitions, download the official catalog once:
 
 ```console
 $ curl -LO https://cwe.mitre.org/data/xml/cwec_latest.xml.zip
-$ unzip -d ~/.config/cve-report/cwe cwec_latest.xml.zip
+$ unzip -d ~/.config/draftcve/cwe cwec_latest.xml.zip
 ```
 
-The newest `cwec_v*.xml` in `~/.config/cve-report/cwe` is used, or the
+The newest `cwec_v*.xml` in `~/.config/draftcve/cwe` is used, or the
 file or directory given with `--cwe-catalog`. Without a catalog, CWEs
 are recorded as the model gives them, with a warning.
 
 ### Generating a record
 
 ```console
-$ cve-report generate CVE-2026-42010 cb1833afd9 --report report.txt
+$ draftcve generate CVE-2026-42010 cb1833afd9 --report report.txt
 ```
 
 The main arguments are:
@@ -107,7 +109,7 @@ a commit message is used as is.
 ### Project configuration
 
 Options that stay the same for every CVE of a project can be kept in
-`.cve-report.toml` at the top of the repository, or in a file given
+`.draftcve.toml` at the top of the repository, or in a file given
 with `--config` (for example, to keep it out of the project's tree).
 Each key is named after its option, with `_` in place of `-`; an
 option given on the command line takes precedence, and `--var`
@@ -146,7 +148,7 @@ template.
 
 ## How it works
 
-cve-report is built using the [Open Intelligence Kit (oi-kit)][oi-kit], in
+draftcve is built using the [Open Intelligence Kit (oi-kit)][oi-kit], in
 the same architecture as [package-rebase-planner][package-rebase-planner].
 A record is produced in up to five agent runs. Each run has a narrow
 goal, because a small model loses track of a long checklist:
