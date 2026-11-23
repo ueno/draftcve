@@ -56,14 +56,14 @@ are recorded as the model gives them, with a warning.
 ### Generating a record
 
 ```console
-$ cve-report generate --report report.txt CVE-2026-42010 cb1833afd9
+$ cve-report generate CVE-2026-42010 cb1833afd9 --report report.txt
 ```
 
 The main arguments are:
 
 - the CVE identifier and the commits fixing the vulnerability
 - `--report FILE`: the finder's original report, such as the email or
-  issue that disclosed the vulnerability. The model reads it alongside
+  issue that describes the vulnerability. The model reads it alongside
   the fix in every step, but is told to trust the fix where the two
   disagree. It is not added to the record
 - `-C`: the git repository (default: the current directory)
@@ -92,7 +92,7 @@ The main arguments are:
   group is the issue number. May be repeated; the first that matches
   wins. The default accepts `#123` and GitHub or GitLab issue URLs.
   For example, with Bugzilla:
-  `--issue-url 'https://bugzilla.redhat.com/show_bug.cgi?id=' --issue-format '^(?:rhbz#|https://bugzilla\.redhat\.com/show_bug\.cgi\?id=)(\d+)$'`
+  `--issue-url 'https://gitlab.com/gnutls/gnutls/-/work_items/' --issue-format '^#(\d+)$'`
 - `--var KEY=VALUE`: extra template variables, such as
   `assigner_org_id` or `advisory_url`
 - `--cwe-catalog`: the CWE catalog (see above)
