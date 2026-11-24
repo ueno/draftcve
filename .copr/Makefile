@@ -4,7 +4,7 @@ VERSION = 0.1.0
 .PHONY: prep
 
 prep:
-	dnf -y install cargo cargo-vendor-filterer tito
+	dnf -y install cargo cargo-vendor-filterer rpkg
 
 target/package/$(CRATE)-$(VERSION).crate: prep
 	cargo package
@@ -21,5 +21,4 @@ $(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
 	tar jcf ../$@ vendor)
 
 srpm: $(CRATE).spec $(CRATE)-$(VERSION)-vendor.tar.xz
-	dnf -y install tito
-	tito build --builder=SomeBuilder --test --srpm --output=$(outdir)
+	rpkg srpm --outdir=$(outdir)
