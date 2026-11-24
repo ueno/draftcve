@@ -980,6 +980,16 @@ mod tests {
     }
 
     #[test]
+    fn lines_are_blamed() {
+        let (_dir, workspace) = workspace_with_repository();
+        let path = Path::new("src/lib.c");
+        let parent = workspace.blame(None, path, 1, 1).unwrap();
+        assert!(parent.contains("Commits:\n- "), "{parent}");
+        let head = workspace.blame(Some("HEAD"), path, 1, 1).unwrap();
+        assert!(head.contains("Commits:\n- "), "{head}");
+    }
+
+    #[test]
     fn options_are_not_taken_as_revisions() {
         let (dir, mut workspace) = workspace_with_repository();
         let written = dir.path().join("written");

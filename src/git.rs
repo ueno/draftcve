@@ -121,6 +121,11 @@ pub fn read_file(home: &Path, commit: &str, path: &Path) -> Result<String> {
 /// Lines `start..=end` of `path` at `commit`, each prefixed with the commit
 /// that last touched it.
 pub fn blame(home: &Path, commit: &str, path: &Path, start: usize, end: usize) -> Result<String> {
+    // `blame` stops recognizing `--` after `--end-of-options` and takes the
+    // path as a revision, so reject options here instead.
+    if commit.starts_with('-') {
+        bail!("{commit} is not a commit in this repository");
+    }
     let path = path.display().to_string();
     let text = capture(
         home,
@@ -130,7 +135,6 @@ pub fn blame(home: &Path, commit: &str, path: &Path, start: usize, end: usize) -
             "--abbrev=11",
             "-L",
             &format!("{start},{end}"),
-            "--end-of-options",
             commit,
             "--",
             &path,
