@@ -6,11 +6,11 @@ VERSION = 0.1.0
 prep:
 	dnf -y install cargo cargo-vendor-filterer rpkg
 
-target/package/$(CRATE)-$(VERSION).crate: prep
-	cargo package
+$(CRATE)-$(VERSION).crate: prep
+	cargo package && mv target/package/$@ $@
 
-$(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
-	tar xf target/package/$(CRATE)-$(VERSION).crate
+$(CRATE)-$(VERSION)-vendor.tar.xz: $(CRATE)-$(VERSION).crate
+	tar xf $< && \
 	(cd $(CRATE)-$(VERSION) && \
 	cargo vendor-filterer --platform x86_64-unknown-linux-gnu \
                       --platform powerpc64le-unknown-linux-gnu \
