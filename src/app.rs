@@ -151,7 +151,7 @@ struct GenerateArgs {
     #[arg(long)]
     dump_context: bool,
     /// Output file name (default: <CVE>.json)
-    #[arg(short = 'o')]
+    #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 }
 

@@ -22,7 +22,7 @@ template.
 
 **Note: The output of this tool may be inaccurate. Review it and
 correct any issues before publishing the record, using tools like
-[Vulnogram][vulnogram]**
+[Vulnogram][vulnogram]**.
 
 ## Usage
 
@@ -68,6 +68,8 @@ The main arguments are:
   issue that describes the vulnerability. The model reads it alongside
   the fix in every step, but is told to trust the fix where the two
   disagree. It is not added to the record
+- `--output`: the output file (default: `<CVE-identifier>.json` in the
+  current directory)
 - `-C`: the git repository (default: the current directory)
 - `--policy`: the project's security issue handling policy, used to
   rate the severity. `--severity-levels` lists the ratings it defines
