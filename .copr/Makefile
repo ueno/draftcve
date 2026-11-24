@@ -23,3 +23,5 @@ $(CRATE)-$(VERSION)-vendor.tar.xz: $(CRATE)-$(VERSION).crate
 
 srpm: $(CRATE).spec $(CRATE)-$(VERSION)-vendor.tar.xz
 	rpkg srpm --outdir=$(outdir)
+	outdir="$(outdir)/"; \
+	rm -f $${outdir}$(CRATE)-$(VERSION).crate $${outdir}$(CRATE)-$(VERSION)-vendor.tar.xz
