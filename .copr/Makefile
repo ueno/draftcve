@@ -1,12 +1,15 @@
 CRATE = draftcve
 VERSION = 0.1.0
 
-target/package/$(CRATE)-$(VERSION).crate:
-	dnf -y install cargo
+.PHONY: prep
+
+prep:
+	dnf -y install cargo cargo-vendor-filterer tito
+
+target/package/$(CRATE)-$(VERSION).crate: prep
 	cargo package
 
 $(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
-	dnf -y install cargo-vendor-filterer
 	tar xf target/package/$(CRATE)-$(VERSION).crate
 	(cd $(CRATE)-$(VERSION) && \
 	cargo vendor-filterer --platform x86_64-unknown-linux-gnu \
