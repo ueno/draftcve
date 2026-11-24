@@ -627,31 +627,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "draftcve"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "clap",
- "futures",
- "jiff",
- "jsonschema 0.33.0",
- "minijinja",
- "oi-kit-agent",
- "oi-kit-providers",
- "quick-xml",
- "regex",
- "rmcp",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "tempdir",
- "tokio",
- "tokio-util",
- "toml",
-]
-
-[[package]]
 name = "darling"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -753,6 +728,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "draftcve"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "futures",
+ "jiff",
+ "jsonschema 0.33.0",
+ "minijinja",
+ "oi-kit-agent",
+ "oi-kit-providers",
+ "quick-xml",
+ "regex",
+ "rmcp",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "tokio",
+ "tokio-util",
+ "toml",
 ]
 
 [[package]]
