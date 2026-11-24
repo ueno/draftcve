@@ -15,6 +15,8 @@
       </g>
     </g>
   </defs>
+  <!-- background -->
+  <rect width="100%" height="100%" fill="white"/>
   <!-- bottle -->
   <path d="M84 40H116V100C116 135 160 145 160 185V368Q160 384 144 384H56Q40 384 40 368V185C40 145 84 135 84 100Z" fill="#000"/>
   <rect x="80" y="40" width="40" height="9" rx="2" fill="#000"/>
