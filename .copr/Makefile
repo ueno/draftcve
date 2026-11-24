@@ -17,5 +17,5 @@ $(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
 	tar jcf ../$@ vendor)
 
 srpm: $(CRATE).spec $(CRATE)-$(VERSION)-vendor.tar.xz
-	dnf -y install tito
+	dnf -y install cargo tito
 	tito build --builder=SomeBuilder --test --srpm --output=$(outdir)
