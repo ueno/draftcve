@@ -2,10 +2,11 @@ CRATE = draftcve
 VERSION = 0.1.0
 
 target/package/$(CRATE)-$(VERSION).crate:
+	dnf -y install cargo
 	cargo package
 
 $(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
-	cargo package
+	dnf -y install cargo-vendor-filterer
 	tar xf target/package/$(CRATE)-$(VERSION).crate
 	(cd $(CRATE)-$(VERSION) && \
 	cargo vendor-filterer --platform x86_64-unknown-linux-gnu \
@@ -17,5 +18,5 @@ $(CRATE)-$(VERSION)-vendor.tar.xz: target/package/$(CRATE)-$(VERSION).crate
 	tar jcf ../$@ vendor)
 
 srpm: $(CRATE).spec $(CRATE)-$(VERSION)-vendor.tar.xz
-	dnf -y install cargo tito
+	dnf -y install tito
 	tito build --builder=SomeBuilder --test --srpm --output=$(outdir)
