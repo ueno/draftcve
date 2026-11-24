@@ -7,7 +7,7 @@
 
   Variables passed with `--var KEY=VALUE` appear under `vars`:
     assigner_org_id      UUID of the CNA (default: a placeholder)
-    assigner_short_name  short name of the CNA (default: the project)
+    assigner_short_name  short name of the CNA (default: the project in lower case)
     vendor               vendor name; when set, affected entries use
                          vendor/product instead of packageName/collectionURL
     commit_url           commit URL prefix (default: <repo_url>/commit/)
@@ -62,7 +62,7 @@
     "cveMetadata": {
         "cveId": {{ cve_id }},
         "assignerOrgId": {{ org_id }},
-        "assignerShortName": {{ vars.assigner_short_name | default(project) }},
+        "assignerShortName": {{ vars.assigner_short_name | default(project|lower) }},
         "state": "PUBLISHED"
     },
     "containers": {
