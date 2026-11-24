@@ -1,10 +1,11 @@
 CRATE = draftcve
 VERSION = 0.1.0
+DEPENDENCIES = cargo cargo-vendor-filterer rpkg
 
 .PHONY: prep
 
 prep:
-	dnf -y install cargo cargo-vendor-filterer rpkg
+	rpm -qi $(DEPENDENCIES) || dnf -y install $(DEPENDENCIES)
 
 $(CRATE)-$(VERSION).crate: prep
 	cargo package && mv target/package/$@ $@
